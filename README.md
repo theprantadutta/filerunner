@@ -39,10 +39,20 @@ cd filerunner
 # Copy the example environment file
 cp .env.example .env
 
-# Edit .env with your configuration (especially change passwords!)
+# ⚠️ IMPORTANT: Edit .env and change these values:
+# - POSTGRES_PASSWORD
+# - JWT_SECRET (generate with: openssl rand -base64 32)
+# - ADMIN_PASSWORD
+
 # For local development, also create backend/.env:
 cp backend/.env.example backend/.env
+# And update the database credentials
 ```
+
+**🔐 Security Note:**
+- `.env` files contain secrets and are **NOT tracked in git**
+- Only `.env.example` files are committed (safe templates)
+- See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) for detailed instructions
 
 3. Start the services:
 ```bash
@@ -216,19 +226,31 @@ Content-Type: application/json
 
 ## Environment Variables
 
+**🔐 Important:** Never commit `.env` files to git! Only `.env.example` files are tracked.
+
 ### For Docker Deployment
 
 Create a `.env` file in the root directory:
 
+```bash
+# Copy and edit
+cp .env.example .env
+
+# Generate secure secrets
+openssl rand -base64 32  # Use this for JWT_SECRET
+```
+
+**Required changes in `.env`:**
 ```env
 # PostgreSQL
-POSTGRES_USER=filerunner
-POSTGRES_PASSWORD=your_secure_password_here
-POSTGRES_DB=filerunner
+POSTGRES_PASSWORD=your_secure_password_here      # ⚠️ CHANGE THIS
 
 # Backend
-JWT_SECRET=your-super-secret-jwt-key-min-32-chars
+JWT_SECRET=your-random-32-char-secret            # ⚠️ CHANGE THIS
+ADMIN_PASSWORD=your_admin_password               # ⚠️ CHANGE THIS
 ```
+
+See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) for complete configuration guide.
 
 ### For Local Development
 
