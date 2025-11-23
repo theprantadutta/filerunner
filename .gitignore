@@ -1,0 +1,39 @@
+# Rust
+/backend/target/
+/backend/Cargo.lock
+/cli/target/
+/cli/Cargo.lock
+
+# Node.js / Next.js
+/frontend/node_modules/
+/frontend/.next/
+/frontend/out/
+/frontend/dist/
+/frontend/.env*.local
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+
+# Storage
+storage/
+uploads/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.log

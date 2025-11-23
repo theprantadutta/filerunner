@@ -1,0 +1,9 @@
+target/
+.env
+.env.local
+*.db
+*.sqlite
+storage/
+.git/
+.gitignore
+README.md

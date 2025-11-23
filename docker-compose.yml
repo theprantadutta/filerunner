@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: filerunner-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-filerunner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-filerunner_password}
+      POSTGRES_DB: ${POSTGRES_DB:-filerunner}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-filerunner}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - filerunner-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: filerunner-backend
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-filerunner}:${POSTGRES_PASSWORD:-filerunner_password}@postgres:5432/${POSTGRES_DB:-filerunner}
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production-min-32-chars}
+      SERVER_PORT: ${SERVER_PORT:-8000}
+      SERVER_HOST: ${SERVER_HOST:-0.0.0.0}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:8000}
+      STORAGE_PATH: ${STORAGE_PATH:-/app/storage}
+      MAX_FILE_SIZE: ${MAX_FILE_SIZE:-104857600}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change_this_admin_password_immediately}
+      RUST_LOG: ${RUST_LOG:-info,filerunner_backend=debug}
+    volumes:
+      - file_storage:/app/storage
+    ports:
+      - "${SERVER_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - filerunner-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  file_storage:
+    driver: local
+
+networks:
+  filerunner-network:
+    driver: bridge
