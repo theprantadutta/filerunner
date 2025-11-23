@@ -14,7 +14,7 @@ A production-ready, self-hostable file management and CDN platform built with Ru
 ## Architecture
 
 - **Backend**: Rust with Axum framework
-- **Frontend**: Next.js 14+ with TypeScript (Coming in Phase 2)
+- **Frontend**: Next.js 15 with TypeScript
 - **Database**: PostgreSQL
 - **Storage**: Local filesystem (S3-compatible storage coming soon)
 
@@ -49,7 +49,9 @@ cp backend/.env.example backend/.env
 docker-compose up -d
 ```
 
-4. The API will be available at `http://localhost:8000`
+4. The services will be available at:
+   - Frontend: `http://localhost:3000`
+   - Backend API: `http://localhost:8000`
 
 ### Development Setup
 
@@ -298,7 +300,7 @@ ADMIN_PASSWORD=admin_password_change_this
 ## Project Status
 
 - ✅ Phase 1: Backend Foundation (Complete)
-- 🚧 Phase 2: Frontend (In Progress)
+- ✅ Phase 2: Frontend (Complete)
 - 📋 Phase 3: CLI Tool (Planned)
 
 ## License
