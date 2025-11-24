@@ -59,6 +59,30 @@ cp backend/.env.example backend/.env
 docker-compose up -d
 ```
 
+   **Database Setup:**
+   - By default, Docker Compose creates a **new PostgreSQL database** with a persistent volume
+   - The backend automatically runs migrations and creates all required tables on startup
+   - An admin user is created automatically using credentials from your `.env` file
+
+   **Using an Existing Database (Optional):**
+
+   If you want to use an existing PostgreSQL database instead:
+
+   Option 1 - Modify the backend service in `docker-compose.yml`:
+   ```yaml
+   # Update the DATABASE_URL to point to your existing database
+   DATABASE_URL: postgresql://your_user:your_pass@your_host:5432/your_db
+   ```
+
+   Option 2 - Run without the Docker Postgres service:
+   ```bash
+   # Comment out the 'postgres' service in docker-compose.yml
+   # Then update your .env file with existing database credentials
+   DATABASE_URL=postgresql://user:pass@host:port/dbname
+   ```
+
+   **Note:** Migrations will run automatically on your existing database. Ensure there are no conflicting table names.
+
 4. The services will be available at:
    - Frontend: `http://localhost:3000`
    - Backend API: `http://localhost:8000`
