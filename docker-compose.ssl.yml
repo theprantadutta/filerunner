@@ -130,13 +130,12 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: https://${DOMAIN}/api
     container_name: filerunner-frontend
     env_file:
       - .env
     environment:
-      NEXT_PUBLIC_API_URL: https://${DOMAIN}/api
+      # API_URL is read at runtime (not build time like NEXT_PUBLIC_API_URL)
+      API_URL: https://${DOMAIN}/api
     depends_on:
       - backend
     networks:

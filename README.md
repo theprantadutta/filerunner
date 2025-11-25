@@ -61,7 +61,7 @@ services:
   frontend:
     image: theprantadutta/filerunner-frontend:latest
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      API_URL: http://localhost:8000/api
     ports:
       - "3000:3000"
     depends_on:
@@ -92,7 +92,7 @@ services:
   frontend:
     image: theprantadutta/filerunner-frontend:latest
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      API_URL: http://localhost:8000/api
     ports:
       - "3000:3000"
     depends_on:
@@ -179,7 +179,7 @@ Uses Traefik with automatic Let's Encrypt SSL certificates:
 DOMAIN=files.yourdomain.com
 LETSENCRYPT_EMAIL=admin@yourdomain.com
 CORS_ORIGINS=https://files.yourdomain.com
-NEXT_PUBLIC_API_URL=https://files.yourdomain.com/api
+API_URL=https://files.yourdomain.com/api
 
 # Optional: Traefik dashboard auth (generate with: htpasswd -nb admin yourpassword)
 TRAEFIK_DASHBOARD_AUTH=admin:$$apr1$$...
@@ -407,7 +407,7 @@ openssl rand -base64 32
 **For HTTP deployment** (default):
 ```env
 CORS_ORIGINS=http://localhost
-NEXT_PUBLIC_API_URL=http://localhost/api
+API_URL=http://localhost:8000/api
 ```
 
 **For HTTPS deployment**:
@@ -415,9 +415,11 @@ NEXT_PUBLIC_API_URL=http://localhost/api
 DOMAIN=files.yourdomain.com
 LETSENCRYPT_EMAIL=admin@yourdomain.com
 CORS_ORIGINS=https://files.yourdomain.com
-NEXT_PUBLIC_API_URL=https://files.yourdomain.com/api
+API_URL=https://files.yourdomain.com/api
 TRAEFIK_DASHBOARD_AUTH=admin:$$apr1$$...  # Optional
 ```
+
+> **Note:** Use `API_URL` (not `NEXT_PUBLIC_API_URL`). This is read at runtime, allowing you to configure the backend URL without rebuilding the Docker image.
 
 ### All Variables
 
