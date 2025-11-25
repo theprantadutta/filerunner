@@ -92,7 +92,9 @@ Complete this checklist before deploying FileRunner.
 
 ## 🚀 Deployment Steps
 
-### Quick Start (Development/Testing)
+### Option 1: HTTP Deployment (Development/Internal)
+
+Best for local development or internal networks without SSL requirements.
 
 ```bash
 # 1. Navigate to project
@@ -105,7 +107,7 @@ cp .env.example .env
 nano .env
 # Update: POSTGRES_PASSWORD, JWT_SECRET, ADMIN_PASSWORD
 
-# 4. Start services
+# 4. Start services (includes nginx on port 80)
 docker-compose up -d
 
 # 5. Check logs
@@ -114,67 +116,81 @@ docker-compose logs -f backend
 # 6. Wait for services to be ready (30-60 seconds)
 
 # 7. Access application
-# Frontend: http://localhost:3000
-# Backend:  http://localhost:8000
+# Visit: http://localhost/
 ```
 
-### Production Deployment
+### Option 2: HTTPS Deployment (Production)
+
+Uses Traefik with automatic Let's Encrypt SSL certificates.
 
 ```bash
 # 1. On production server
 cd /opt/filerunner  # or your deployment path
 
-# 2. Pull latest code
-git pull origin main
-
-# 3. Create .env with production values
+# 2. Create .env with production values
 cp .env.example .env
 nano .env
 
-# CRITICAL: Set these to strong, unique values:
-# - POSTGRES_PASSWORD
-# - JWT_SECRET (32+ chars)
-# - ADMIN_PASSWORD
-# - CORS_ORIGINS (your domain)
-# - ALLOW_SIGNUP=false (if restricting registration)
+# REQUIRED SETTINGS:
+# POSTGRES_PASSWORD=<strong-password>
+# JWT_SECRET=<32+-char-secret>
+# ADMIN_PASSWORD=<strong-password>
+# DOMAIN=files.yourdomain.com
+# LETSENCRYPT_EMAIL=admin@yourdomain.com
+# CORS_ORIGINS=https://files.yourdomain.com
+# NEXT_PUBLIC_API_URL=https://files.yourdomain.com/api
+# ALLOW_SIGNUP=false  # Optional: restrict registration
 
-# 4. Secure .env file
+# Optional: Traefik dashboard (generate with: htpasswd -nb admin password)
+# TRAEFIK_DASHBOARD_AUTH=admin:$$apr1$$...
+
+# 3. Secure .env file
 chmod 600 .env
-chown root:root .env
 
-# 5. Build and start services
-docker-compose up -d --build
+# 4. Ensure DNS is configured
+# Your domain must point to this server's IP
+
+# 5. Start services with SSL
+docker-compose -f docker-compose.ssl.yml up -d --build
 
 # 6. Verify services are running
-docker-compose ps
+docker-compose -f docker-compose.ssl.yml ps
 
-# 7. Check logs for errors
-docker-compose logs -f
+# 7. Check Traefik logs for certificate acquisition
+docker-compose -f docker-compose.ssl.yml logs traefik
 
-# 8. Test access
-curl http://localhost:8000/health
-# Should return: OK
-
-# 9. Access frontend
-# Visit: http://your-domain.com:3000
+# 8. Access application
+# Visit: https://files.yourdomain.com/
+# Dashboard: https://traefik.files.yourdomain.com/ (if configured)
 ```
 
-### With Reverse Proxy (Recommended for Production)
+### Option 3: External Nginx (Alternative)
+
+If you prefer to manage nginx outside of Docker:
 
 ```bash
-# 1. Set up Nginx/Caddy/Traefik
+# 1. Start FileRunner services only
+docker-compose up -d postgres backend frontend
 
-# 2. Configure SSL/TLS certificates
-certbot certonly --standalone -d your-domain.com
+# 2. Install nginx on host
+sudo apt install nginx
 
-# 3. Update docker-compose.yml
-# Remove port mappings, add reverse proxy config
+# 3. Copy nginx configuration
+sudo cp nginx/nginx-letsencrypt.conf /etc/nginx/nginx.conf
+sudo cp nginx/ssl-params.conf /etc/nginx/ssl-params.conf
 
-# 4. Start services
-docker-compose up -d
+# 4. Update domain in config
+sudo sed -i 's/YOUR_DOMAIN/files.yourdomain.com/g' /etc/nginx/nginx.conf
 
-# 5. Configure reverse proxy
-# See SECURITY.md for Nginx example
+# 5. Get SSL certificate with certbot
+sudo apt install certbot
+sudo mkdir -p /var/www/certbot
+sudo certbot certonly --webroot -w /var/www/certbot -d files.yourdomain.com
+
+# 6. Test and reload nginx
+sudo nginx -t && sudo systemctl reload nginx
+
+# See nginx/README.md for detailed instructions
 ```
 
 ## 🔍 Post-Deployment Verification
@@ -203,13 +219,16 @@ docker-compose up -d
 
 ### Functionality Tests
 
-- [ ] Can access frontend at `http://localhost:3000`
+- [ ] Can access frontend
+  - HTTP: `http://localhost/`
+  - HTTPS: `https://your-domain.com/`
 
 - [ ] Can register new user (if `ALLOW_SIGNUP=true`)
 
 - [ ] Can login with admin credentials
   - Email: Value from `ADMIN_EMAIL` in `.env`
   - Password: Value from `ADMIN_PASSWORD` in `.env`
+  - Note: Admin is required to change password on first login
 
 - [ ] Can create a project
 
@@ -334,6 +353,7 @@ curl http://localhost:8000/health
 - [README.md](README.md) - Main documentation
 - [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) - Complete env guide
 - [SECURITY.md](SECURITY.md) - Security best practices
+- [nginx/README.md](nginx/README.md) - Nginx configuration guide
 - [SETUP.md](SETUP.md) - Detailed setup instructions
 - [API_EXAMPLES.md](API_EXAMPLES.md) - API usage examples
 

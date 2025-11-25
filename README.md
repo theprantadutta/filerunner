@@ -36,17 +36,12 @@ cd filerunner
 
 2. Create environment file:
 ```bash
-# Copy the example environment file
 cp .env.example .env
 
 # ⚠️ IMPORTANT: Edit .env and change these values:
 # - POSTGRES_PASSWORD
 # - JWT_SECRET (generate with: openssl rand -base64 32)
 # - ADMIN_PASSWORD
-
-# For local development, also create backend/.env:
-cp backend/.env.example backend/.env
-# And update the database credentials
 ```
 
 **🔐 Security Note:**
@@ -59,33 +54,76 @@ cp backend/.env.example backend/.env
 docker-compose up -d
 ```
 
-   **Database Setup:**
-   - By default, Docker Compose creates a **new PostgreSQL database** with a persistent volume
-   - The backend automatically runs migrations and creates all required tables on startup
-   - An admin user is created automatically using credentials from your `.env` file
+4. Access the application at: **http://localhost/**
 
-   **Using an Existing Database (Optional):**
+   The admin user is created automatically on first startup. You'll be prompted to change the password on first login.
 
-   If you want to use an existing PostgreSQL database instead:
+### Deployment Options
 
-   Option 1 - Modify the backend service in `docker-compose.yml`:
-   ```yaml
-   # Update the DATABASE_URL to point to your existing database
-   DATABASE_URL: postgresql://your_user:your_pass@your_host:5432/your_db
-   ```
+FileRunner supports multiple deployment configurations:
 
-   Option 2 - Run without the Docker Postgres service:
-   ```bash
-   # Comment out the 'postgres' service in docker-compose.yml
-   # Then update your .env file with existing database credentials
-   DATABASE_URL=postgresql://user:pass@host:port/dbname
-   ```
+| Method | Command | Access URL | Use Case |
+|--------|---------|------------|----------|
+| **HTTP** | `docker-compose up -d` | `http://localhost/` | Development, internal networks |
+| **HTTPS** | `docker-compose -f docker-compose.ssl.yml up -d` | `https://your-domain.com/` | Production with auto-SSL |
 
-   **Note:** Migrations will run automatically on your existing database. Ensure there are no conflicting table names.
+#### HTTP Deployment (Default)
 
-4. The services will be available at:
-   - Frontend: `http://localhost:3000`
-   - Backend API: `http://localhost:8000`
+Uses nginx as reverse proxy on port 80:
+```bash
+docker-compose up -d
+# Access at http://localhost/
+```
+
+#### HTTPS Deployment (Production)
+
+Uses Traefik with automatic Let's Encrypt SSL certificates:
+
+1. Configure your `.env` file:
+```env
+DOMAIN=files.yourdomain.com
+LETSENCRYPT_EMAIL=admin@yourdomain.com
+CORS_ORIGINS=https://files.yourdomain.com
+NEXT_PUBLIC_API_URL=https://files.yourdomain.com/api
+
+# Optional: Traefik dashboard auth (generate with: htpasswd -nb admin yourpassword)
+TRAEFIK_DASHBOARD_AUTH=admin:$$apr1$$...
+```
+
+2. Ensure your domain points to your server's IP address
+
+3. Start with SSL:
+```bash
+docker-compose -f docker-compose.ssl.yml up -d
+```
+
+4. Access at: `https://your-domain.com/`
+   - Traefik dashboard: `https://traefik.your-domain.com/` (if configured)
+
+#### External Nginx (Alternative)
+
+If you prefer to use your own nginx installation, see the `nginx/` directory for configuration examples:
+- `nginx/nginx.conf` - HTTP configuration
+- `nginx/nginx-ssl.conf` - HTTPS with your own certificates
+- `nginx/nginx-letsencrypt.conf` - HTTPS with certbot
+- `nginx/README.md` - Detailed setup instructions
+
+### Using an Existing Database
+
+If you want to use an existing PostgreSQL database:
+
+**Option 1** - Update `DATABASE_URL` in docker-compose.yml:
+```yaml
+DATABASE_URL: postgresql://your_user:your_pass@your_host:5432/your_db
+```
+
+**Option 2** - Run without Docker's postgres service:
+```bash
+# Comment out 'postgres' service in docker-compose.yml
+# Update .env with your database credentials
+```
+
+**Note:** Migrations run automatically on startup.
 
 ### Development Setup
 
@@ -252,61 +290,43 @@ Content-Type: application/json
 
 **🔐 Important:** Never commit `.env` files to git! Only `.env.example` files are tracked.
 
-### For Docker Deployment
-
-Create a `.env` file in the root directory:
+### Quick Setup
 
 ```bash
-# Copy and edit
 cp .env.example .env
 
-# Generate secure secrets
-openssl rand -base64 32  # Use this for JWT_SECRET
+# Generate secure JWT secret
+openssl rand -base64 32
 ```
 
-**Required changes in `.env`:**
+### Required Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `POSTGRES_PASSWORD` | Database password | `secure_password_here` |
+| `JWT_SECRET` | Token signing key (32+ chars) | `openssl rand -base64 32` |
+| `ADMIN_PASSWORD` | Initial admin password | `change_on_first_login` |
+
+### HTTP vs HTTPS Configuration
+
+**For HTTP deployment** (default):
 ```env
-# PostgreSQL
-POSTGRES_PASSWORD=your_secure_password_here      # ⚠️ CHANGE THIS
-
-# Backend
-JWT_SECRET=your-random-32-char-secret            # ⚠️ CHANGE THIS
-ADMIN_PASSWORD=your_admin_password               # ⚠️ CHANGE THIS
+CORS_ORIGINS=http://localhost
+NEXT_PUBLIC_API_URL=http://localhost/api
 ```
 
-See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) for complete configuration guide.
-
-### For Local Development
-
-Create a `backend/.env` file:
-
+**For HTTPS deployment**:
 ```env
-# PostgreSQL
-POSTGRES_USER=filerunner
-POSTGRES_PASSWORD=your_secure_password_here
-POSTGRES_DB=filerunner
-
-# Database URL
-DATABASE_URL=postgresql://filerunner:password@localhost:5432/filerunner
-
-# JWT
-JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
-
-# Server
-SERVER_PORT=8000
-CORS_ORIGINS=http://localhost:3000,http://localhost:8000
-
-# Storage
-STORAGE_PATH=./storage
-MAX_FILE_SIZE=104857600  # 100MB in bytes
-
-# Features
-ALLOW_SIGNUP=true
-
-# Admin
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=admin_password_change_this
+DOMAIN=files.yourdomain.com
+LETSENCRYPT_EMAIL=admin@yourdomain.com
+CORS_ORIGINS=https://files.yourdomain.com
+NEXT_PUBLIC_API_URL=https://files.yourdomain.com/api
+TRAEFIK_DASHBOARD_AUTH=admin:$$apr1$$...  # Optional
 ```
+
+### All Variables
+
+See `.env.example` for complete list with descriptions, or [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) for detailed guide.
 
 ## Database Schema
 

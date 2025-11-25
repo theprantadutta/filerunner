@@ -142,89 +142,68 @@ Before deploying FileRunner to production, complete this checklist:
 
 ## Secure Deployment
 
-### Docker Production Setup
+FileRunner provides two deployment options with built-in reverse proxy:
 
-```yaml
-# docker-compose.prod.yml
-version: '3.8'
+### Option 1: HTTPS with Traefik (Recommended)
 
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    # Don't expose port externally
-    networks:
-      - internal
+Uses `docker-compose.ssl.yml` with automatic Let's Encrypt certificates:
 
-  backend:
-    image: your-registry/filerunner-backend:latest
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      JWT_SECRET: ${JWT_SECRET}
-    volumes:
-      - file_storage:/app/storage:rw
-    # Only expose via reverse proxy
-    networks:
-      - internal
+```bash
+# Configure .env
+DOMAIN=files.yourdomain.com
+LETSENCRYPT_EMAIL=admin@yourdomain.com
+CORS_ORIGINS=https://files.yourdomain.com
+NEXT_PUBLIC_API_URL=https://files.yourdomain.com/api
 
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "443:443"
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-    networks:
-      - internal
-    depends_on:
-      - backend
-      - frontend
-
-networks:
-  internal:
-    driver: bridge
+# Deploy
+docker-compose -f docker-compose.ssl.yml up -d
 ```
 
-### Nginx Configuration (HTTPS)
+**Security features included:**
+- Automatic HTTPS with Let's Encrypt
+- HTTP to HTTPS redirect
+- Certificate auto-renewal
+- Traefik dashboard with basic auth (optional)
+- No direct port exposure (except 80/443)
 
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name your-domain.com;
+### Option 2: HTTP with Nginx (Development/Internal)
 
-    ssl_certificate /etc/nginx/ssl/cert.pem;
-    ssl_certificate_key /etc/nginx/ssl/key.pem;
+Uses `docker-compose.yml` with nginx on port 80:
 
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy "no-referrer-when-downgrade" always;
-    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
-
-    # Rate limiting
-    limit_req zone=one burst=10 nodelay;
-
-    # Frontend
-    location / {
-        proxy_pass http://frontend:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    # Backend API
-    location /api/ {
-        proxy_pass http://backend:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        client_max_body_size 100M;
-    }
-}
+```bash
+docker-compose up -d
+# Access at http://localhost/
 ```
+
+**Note:** Only use HTTP for development or internal networks. Add your own SSL termination for production.
+
+### Option 3: External Nginx
+
+For custom nginx configurations, see `nginx/` directory:
+- `nginx/nginx.conf` - HTTP configuration
+- `nginx/nginx-ssl.conf` - HTTPS with your own certs
+- `nginx/nginx-letsencrypt.conf` - HTTPS with certbot
+- `nginx/ssl-params.conf` - Modern TLS settings
+- `nginx/README.md` - Setup instructions
+
+### Security Headers
+
+All deployment options include these security headers:
+- `X-Frame-Options: SAMEORIGIN`
+- `X-Content-Type-Options: nosniff`
+- `X-XSS-Protection: 1; mode=block`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Permissions-Policy: camera=(), microphone=(), geolocation=()`
+
+HTTPS deployments also include:
+- `Strict-Transport-Security` (HSTS)
+
+### Rate Limiting
+
+Built-in rate limiting protects against brute-force attacks:
+- Auth endpoints: 5 requests/second per IP
+- API endpoints: 10 requests/second per IP
+- File uploads: 1 request/second per IP (burst 10)
 
 ## Security Maintenance
 
