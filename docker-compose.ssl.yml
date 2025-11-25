@@ -130,11 +130,15 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # Set NEXT_PUBLIC_BASE_PATH for subpath deployments (e.g., /myapp)
+        # Leave empty for root path deployments
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
     container_name: filerunner-frontend
     env_file:
       - .env
     environment:
-      # API_URL is read at runtime (not build time like NEXT_PUBLIC_API_URL)
+      # API_URL is read at runtime (not build time)
       API_URL: https://${DOMAIN}/api
     depends_on:
       - backend

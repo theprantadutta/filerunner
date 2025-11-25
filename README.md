@@ -203,6 +203,56 @@ If you prefer to use your own nginx installation, see the `nginx/` directory for
 - `nginx/nginx-letsencrypt.conf` - HTTPS with certbot
 - `nginx/README.md` - Detailed setup instructions
 
+#### Subpath Deployment
+
+To deploy FileRunner under a subpath (e.g., `https://example.com/filerunner/`), you need to build the frontend with `NEXT_PUBLIC_BASE_PATH`:
+
+1. Create a `docker-compose.override.yml`:
+```yaml
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_BASE_PATH: /filerunner
+    environment:
+      API_URL: https://example.com/filerunner-api
+```
+
+2. Configure nginx to proxy both frontend and backend:
+```nginx
+# Backend API
+location /filerunner-api/ {
+    rewrite ^/filerunner-api/?(.*)$ /api/$1 break;
+    proxy_pass http://localhost:8000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# Frontend
+location /filerunner/ {
+    rewrite ^/filerunner/?(.*)$ /$1 break;
+    proxy_pass http://localhost:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+}
+```
+
+3. Build and start:
+```bash
+docker-compose up -d --build
+```
+
+> **Note:** `NEXT_PUBLIC_BASE_PATH` is a **build-time** variable. You must rebuild the frontend image whenever you change it.
+
 ### Using an Existing Database
 
 If you want to use an existing PostgreSQL database:
