@@ -20,17 +20,112 @@ A production-ready, self-hostable file management and CDN platform built with Ru
 
 ## Quick Start
 
-### Prerequisites
+### Option 1: Quick Deploy (Recommended)
+
+Create a `docker-compose.yml` file on your server:
+
+**With included PostgreSQL database:**
+
+```yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: filerunner
+      POSTGRES_PASSWORD: your_secure_password_here
+      POSTGRES_DB: filerunner
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filerunner"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: theprantadutta/filerunner-backend:latest
+    environment:
+      DATABASE_URL: postgresql://filerunner:your_secure_password_here@postgres:5432/filerunner
+      JWT_SECRET: your-super-secret-jwt-key-min-32-characters
+      CORS_ORIGINS: http://localhost
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: admin123
+    ports:
+      - "8000:8000"
+    volumes:
+      - file_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    image: theprantadutta/filerunner-frontend:latest
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  file_storage:
+```
+
+**With external PostgreSQL database:**
+
+```yaml
+services:
+  backend:
+    image: theprantadutta/filerunner-backend:latest
+    environment:
+      DATABASE_URL: postgresql://user:password@your-db-host:5432/filerunner
+      JWT_SECRET: your-super-secret-jwt-key-min-32-characters
+      CORS_ORIGINS: http://localhost
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: admin123
+    ports:
+      - "8000:8000"
+    volumes:
+      - file_storage:/app/storage
+
+  frontend:
+    image: theprantadutta/filerunner-frontend:latest
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  file_storage:
+```
+
+Then run:
+```bash
+docker-compose up -d
+```
+
+Access the application at:
+- Frontend: **http://localhost:3000**
+- Backend API: **http://localhost:8000**
+
+### Option 2: Clone Repository
+
+For more configuration options (nginx reverse proxy, HTTPS with Traefik, etc.):
+
+#### Prerequisites
 
 - Docker and Docker Compose
 - Rust 1.75+ (for development)
 - Node.js 18+ (for frontend development)
 
-### Running with Docker
+#### Running with Docker
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/theprantadutta/filerunner.git
 cd filerunner
 ```
 
