@@ -82,7 +82,7 @@ pub async fn list_folders(
     for folder in folders {
         let stats = sqlx::query_as::<_, (Option<i64>, Option<i64>)>(
             r#"
-            SELECT COUNT(*), COALESCE(SUM(size), 0)
+            SELECT COUNT(*)::bigint, COALESCE(SUM(size), 0)::bigint
             FROM files
             WHERE folder_id = $1
             "#,

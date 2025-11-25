@@ -52,8 +52,8 @@ pub async fn list_projects(
             p.api_key,
             p.is_public,
             p.created_at,
-            COUNT(f.id) as file_count,
-            COALESCE(SUM(f.size), 0) as total_size
+            COUNT(f.id)::bigint as file_count,
+            COALESCE(SUM(f.size), 0)::bigint as total_size
         FROM projects p
         LEFT JOIN files f ON f.project_id = p.id
         WHERE p.user_id = $1
@@ -88,7 +88,7 @@ pub async fn get_project(
 
     let stats = sqlx::query_as::<_, (Option<i64>, Option<i64>)>(
         r#"
-        SELECT COUNT(*), COALESCE(SUM(size), 0)
+        SELECT COUNT(*)::bigint, COALESCE(SUM(size), 0)::bigint
         FROM files
         WHERE project_id = $1
         "#,
