@@ -14,19 +14,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-# Add permissions for the workflow
-permissions:
-  contents: write
-  packages: write
-  pull-requests: read
-
 jobs:
-  create-release:
-    name: Create Release
+  build-and-push-backend:
+    name: Build & Push Backend
     runs-on: ubuntu-latest
-    outputs:
-      tag_name: ${{ steps.tag.outputs.tag }}
-      release_id: ${{ steps.create_release.outputs.id }}
     steps:
     - uses: actions/checkout@v4
 
@@ -38,60 +29,6 @@ jobs:
         else
           echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
         fi
-
-    - name: Create Release
-      id: create_release
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: ${{ steps.tag.outputs.tag }}
-        name: FileRunner ${{ steps.tag.outputs.tag }}
-        body: |
-          ## What's Changed
-
-          This release includes the latest updates to FileRunner.
-
-          ### Installation
-
-          #### Docker Compose (Recommended)
-          ```bash
-          # Clone the repository
-          git clone https://github.com/theprantadutta/filerunner.git
-          cd filerunner
-          git checkout ${{ steps.tag.outputs.tag }}
-
-          # Copy and configure environment
-          cp .env.example .env
-          # Edit .env with your settings
-
-          # Start with HTTP
-          docker-compose up -d
-
-          # Or start with HTTPS (Traefik + Let's Encrypt)
-          docker-compose -f docker-compose.ssl.yml up -d
-          ```
-
-          #### Pull Individual Images
-          ```bash
-          # Backend
-          docker pull theprantadutta/filerunner-backend:${{ steps.tag.outputs.tag }}
-
-          # Frontend
-          docker pull theprantadutta/filerunner-frontend:${{ steps.tag.outputs.tag }}
-          ```
-
-          ### Default Credentials
-          - Email: `admin@filerunner.local`
-          - Password: Set via `ADMIN_PASSWORD` environment variable
-        draft: false
-        prerelease: false
-        generate_release_notes: true
-
-  build-and-push-backend:
-    name: Build & Push Backend
-    needs: create-release
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
 
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
@@ -131,10 +68,18 @@ jobs:
 
   build-and-push-frontend:
     name: Build & Push Frontend
-    needs: create-release
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+
+    - name: Get tag
+      id: tag
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+        else
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
 
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
@@ -173,28 +118,3 @@ jobs:
           NEXT_PUBLIC_API_URL=/api
         cache-from: type=gha
         cache-to: type=gha,mode=max
-
-  update-release-notes:
-    name: Update Release Notes
-    needs: [create-release, build-and-push-backend, build-and-push-frontend]
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Update release with image info
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: ${{ needs.create-release.outputs.tag_name }}
-        append_body: true
-        body: |
-
-          ### Docker Images
-
-          | Image | Tags |
-          |-------|------|
-          | `theprantadutta/filerunner-backend` | `${{ needs.create-release.outputs.tag_name }}`, `latest` |
-          | `theprantadutta/filerunner-frontend` | `${{ needs.create-release.outputs.tag_name }}`, `latest` |
-
-          ### Supported Architectures
-          - `linux/amd64`
-          - `linux/arm64`
