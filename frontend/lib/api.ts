@@ -1,20 +1,44 @@
-import axios from "axios";
+import axios, { AxiosInstance } from "axios";
 import { getApiUrl } from "./config";
 
-// API URL is resolved at runtime - see config.ts for resolution logic
-const API_URL = getApiUrl();
+// Lazy-initialized axios instance
+// This ensures getApiUrl() is called at request time, not module load time
+let _api: AxiosInstance | null = null;
 
-export const api = axios.create({
-  baseURL: API_URL,
-});
+const getApi = (): AxiosInstance => {
+  if (!_api) {
+    const apiUrl = getApiUrl();
+    _api = axios.create({
+      baseURL: apiUrl,
+    });
 
-// Add auth token to requests
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+    // Add auth token to requests
+    _api.interceptors.request.use((config) => {
+      // Re-check API URL on each request in case config was updated
+      config.baseURL = getApiUrl();
+
+      if (typeof window !== "undefined") {
+        const token = localStorage.getItem("token");
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+      }
+      return config;
+    });
   }
-  return config;
+  return _api;
+};
+
+// Export a proxy that lazily initializes the api
+export const api = new Proxy({} as AxiosInstance, {
+  get(_, prop) {
+    const instance = getApi();
+    const value = instance[prop as keyof AxiosInstance];
+    if (typeof value === "function") {
+      return value.bind(instance);
+    }
+    return value;
+  },
 });
 
 // Types
@@ -130,7 +154,7 @@ export const filesApi = {
   delete: (id: string) => api.delete(`/files/${id}`),
 
   getDownloadUrl: (id: string, apiKey?: string) => {
-    const url = `${API_URL}/files/${id}`;
+    const url = `${getApiUrl()}/files/${id}`;
     return apiKey ? `${url}?api_key=${apiKey}` : url;
   },
 };
