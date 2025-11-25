@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.87-slim AS builder
+FROM rust:1.83-slim AS builder
 
 WORKDIR /app
 
@@ -12,10 +12,8 @@ RUN apt-get update && \
 COPY Cargo.toml Cargo.lock ./
 
 # Create a dummy main.rs to cache dependencies
-# Pin home crate to a version compatible with Rust 1.87
 RUN mkdir src && \
     echo "fn main() {}" > src/main.rs && \
-    cargo update home@0.5.12 --precise 0.5.11 || true && \
     cargo build --release && \
     rm -rf src
 
