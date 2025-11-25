@@ -23,6 +23,8 @@ jobs:
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       tag_name: ${{ steps.tag.outputs.tag }}
       release_id: ${{ steps.create_release.outputs.id }}
@@ -41,6 +43,8 @@ jobs:
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: FileRunner ${{ steps.tag.outputs.tag }}
@@ -195,11 +199,15 @@ jobs:
     name: Update Release Notes
     needs: [create-release, build-and-push-backend, build-and-push-frontend]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
       - name: Update release with image info
         uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ needs.create-release.outputs.tag_name }}
           append_body: true
