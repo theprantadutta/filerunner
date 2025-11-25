@@ -1,6 +1,26 @@
 import axios from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+// API URL resolution:
+// 1. Use NEXT_PUBLIC_API_URL if set at build time
+// 2. Otherwise, auto-detect based on current hostname (assumes backend on port 8000)
+const getApiUrl = (): string => {
+  // If env var is set and not the placeholder, use it
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (envUrl && envUrl !== "/api") {
+    return envUrl;
+  }
+
+  // Client-side: construct URL from current location
+  if (typeof window !== "undefined") {
+    const { protocol, hostname } = window.location;
+    return `${protocol}//${hostname}:8000/api`;
+  }
+
+  // Server-side fallback
+  return "http://localhost:8000/api";
+};
+
+const API_URL = getApiUrl();
 
 export const api = axios.create({
   baseURL: API_URL,
