@@ -22,12 +22,6 @@ pub struct AuthUser {
     pub role: UserRole,
 }
 
-impl AuthUser {
-    pub fn is_admin(&self) -> bool {
-        matches!(self.role, UserRole::Admin)
-    }
-}
-
 #[async_trait]
 impl<S> FromRequestParts<S> for AuthUser
 where
@@ -77,19 +71,6 @@ pub async fn require_auth(
     };
 
     request.extensions_mut().insert(auth_user);
-
-    Ok(next.run(request).await)
-}
-
-pub async fn require_admin(mut request: Request, next: Next) -> Result<Response> {
-    let auth_user = request
-        .extensions()
-        .get::<AuthUser>()
-        .ok_or(AppError::Unauthorized)?;
-
-    if !auth_user.is_admin() {
-        return Err(AppError::Forbidden("Admin access required".to_string()));
-    }
 
     Ok(next.run(request).await)
 }
