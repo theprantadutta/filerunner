@@ -139,9 +139,13 @@ export default function DashboardPage() {
                       <CardTitle className="text-lg">{project.name}</CardTitle>
                     </div>
                     {project.is_public ? (
-                      <Globe className="h-4 w-4 text-green-600" title="Public" />
+                      <span title="Public">
+                        <Globe className="h-4 w-4 text-green-600" />
+                      </span>
                     ) : (
-                      <Lock className="h-4 w-4 text-gray-500" title="Private" />
+                      <span title="Private">
+                        <Lock className="h-4 w-4 text-gray-500" />
+                      </span>
                     )}
                   </div>
                   <CardDescription>

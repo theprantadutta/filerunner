@@ -128,9 +128,13 @@ export default function ProjectDetailPage() {
           <div className="flex items-center gap-2">
             <h1 className="text-3xl font-bold">{project.name}</h1>
             {project.is_public ? (
-              <Globe className="h-5 w-5 text-green-600" title="Public" />
+              <span title="Public">
+                <Globe className="h-5 w-5 text-green-600" />
+              </span>
             ) : (
-              <Lock className="h-5 w-5 text-gray-500" title="Private" />
+              <span title="Private">
+                <Lock className="h-5 w-5 text-gray-500" />
+              </span>
             )}
           </div>
           <p className="text-muted-foreground">
