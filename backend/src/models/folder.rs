@@ -16,7 +16,11 @@ pub struct Folder {
 #[derive(Debug, Deserialize, Validate)]
 pub struct CreateFolderRequest {
     pub project_id: Uuid,
-    #[validate(length(min = 1, max = 500, message = "Folder path must be between 1 and 500 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 500,
+        message = "Folder path must be between 1 and 500 characters"
+    ))]
     pub path: String,
     pub is_public: Option<bool>,
 }

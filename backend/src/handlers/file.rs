@@ -28,12 +28,11 @@ pub async fn upload_file(
         .and_then(|h| h.to_str().ok())
         .ok_or(AppError::Unauthorized)?;
 
-    let api_key_uuid = Uuid::parse_str(api_key)
-        .map_err(|_| AppError::Unauthorized)?;
+    let api_key_uuid = Uuid::parse_str(api_key).map_err(|_| AppError::Unauthorized)?;
 
     // Get project by API key
     let project = sqlx::query_as::<_, Project>(
-        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE api_key = $1"
+        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE api_key = $1",
     )
     .bind(api_key_uuid)
     .fetch_optional(&state.pool)
@@ -45,21 +44,28 @@ pub async fn upload_file(
     let mut folder_path: Option<String> = None;
 
     // Parse multipart form
-    while let Some(field) = multipart.next_field().await
-        .map_err(|e| AppError::BadRequest(format!("Multipart error: {}", e)))? {
-
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Multipart error: {}", e)))?
+    {
         let name = field.name().unwrap_or("").to_string();
 
         match name.as_str() {
             "file" => {
                 file_name = field.file_name().map(|s| s.to_string());
-                file_data = Some(field.bytes().await
-                    .map_err(|e| AppError::BadRequest(format!("Failed to read file: {}", e)))?
-                    .to_vec());
+                file_data = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|e| AppError::BadRequest(format!("Failed to read file: {}", e)))?
+                        .to_vec(),
+                );
             }
             "folder_path" => {
-                let text = field.text().await
-                    .map_err(|e| AppError::BadRequest(format!("Failed to read folder_path: {}", e)))?;
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("Failed to read folder_path: {}", e))
+                })?;
                 if !text.is_empty() {
                     folder_path = Some(text);
                 }
@@ -74,17 +80,31 @@ pub async fn upload_file(
     // Validate folder_path to prevent path traversal attacks
     if let Some(ref path) = folder_path {
         // Check for path traversal attempts
-        if path.contains("..") || path.starts_with('/') || path.starts_with('\\')
-            || path.contains("//") || path.contains("\\\\") || path.contains('\0') {
-            return Err(AppError::BadRequest("Invalid folder path: path traversal not allowed".to_string()));
+        if path.contains("..")
+            || path.starts_with('/')
+            || path.starts_with('\\')
+            || path.contains("//")
+            || path.contains("\\\\")
+            || path.contains('\0')
+        {
+            return Err(AppError::BadRequest(
+                "Invalid folder path: path traversal not allowed".to_string(),
+            ));
         }
         // Validate characters (alphanumeric, underscore, hyphen, forward slash, dot)
-        if !path.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '/' || c == '.') {
-            return Err(AppError::BadRequest("Invalid folder path: contains invalid characters".to_string()));
+        if !path
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '/' || c == '.')
+        {
+            return Err(AppError::BadRequest(
+                "Invalid folder path: contains invalid characters".to_string(),
+            ));
         }
         // Prevent hidden folders (starting with dot)
         if path.starts_with('.') || path.contains("/.") {
-            return Err(AppError::BadRequest("Invalid folder path: hidden folders not allowed".to_string()));
+            return Err(AppError::BadRequest(
+                "Invalid folder path: hidden folders not allowed".to_string(),
+            ));
         }
     }
 
@@ -141,16 +161,19 @@ pub async fn upload_file(
     }
 
     // Create directory if it doesn't exist
-    fs::create_dir_all(&storage_path).await
+    fs::create_dir_all(&storage_path)
+        .await
         .map_err(|e| AppError::FileError(format!("Failed to create directory: {}", e)))?;
 
     storage_path.push(&stored_name);
 
     // Write file to disk
-    let mut file = fs::File::create(&storage_path).await
+    let mut file = fs::File::create(&storage_path)
+        .await
         .map_err(|e| AppError::FileError(format!("Failed to create file: {}", e)))?;
 
-    file.write_all(&file_data).await
+    file.write_all(&file_data)
+        .await
         .map_err(|e| AppError::FileError(format!("Failed to write file: {}", e)))?;
 
     // Detect MIME type
@@ -205,7 +228,7 @@ pub async fn download_file(
 
     // Get project
     let project = sqlx::query_as::<_, Project>(
-        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1"
+        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1",
     )
     .bind(file.project_id)
     .fetch_optional(&state.pool)
@@ -217,7 +240,7 @@ pub async fn download_file(
         // If folder exists, check folder visibility
         if let Some(folder_id) = file.folder_id {
             let folder = sqlx::query_as::<_, Folder>(
-                "SELECT id, project_id, path, is_public, created_at FROM folders WHERE id = $1"
+                "SELECT id, project_id, path, is_public, created_at FROM folders WHERE id = $1",
             )
             .bind(folder_id)
             .fetch_optional(&state.pool)
@@ -231,8 +254,8 @@ pub async fn download_file(
                         .and_then(|h| h.to_str().ok())
                         .ok_or(AppError::Unauthorized)?;
 
-                    let api_key_uuid = Uuid::parse_str(api_key)
-                        .map_err(|_| AppError::Unauthorized)?;
+                    let api_key_uuid =
+                        Uuid::parse_str(api_key).map_err(|_| AppError::Unauthorized)?;
 
                     if api_key_uuid != project.api_key {
                         return Err(AppError::Unauthorized);
@@ -246,8 +269,7 @@ pub async fn download_file(
                 .and_then(|h| h.to_str().ok())
                 .ok_or(AppError::Unauthorized)?;
 
-            let api_key_uuid = Uuid::parse_str(api_key)
-                .map_err(|_| AppError::Unauthorized)?;
+            let api_key_uuid = Uuid::parse_str(api_key).map_err(|_| AppError::Unauthorized)?;
 
             if api_key_uuid != project.api_key {
                 return Err(AppError::Unauthorized);
@@ -257,7 +279,8 @@ pub async fn download_file(
 
     // Read file from disk
     let file_path = PathBuf::from(&file.file_path);
-    let file_data = fs::read(&file_path).await
+    let file_data = fs::read(&file_path)
+        .await
         .map_err(|e| AppError::FileError(format!("Failed to read file: {}", e)))?;
 
     // Build response with proper headers
@@ -267,7 +290,7 @@ pub async fn download_file(
         .header(header::CONTENT_LENGTH, file_data.len())
         .header(
             header::CONTENT_DISPOSITION,
-            format!("inline; filename=\"{}\"", file.original_name)
+            format!("inline; filename=\"{}\"", file.original_name),
         )
         .body(Body::from(file_data))
         .map_err(|e| AppError::InternalError(format!("Failed to build response: {}", e)))?;
@@ -280,7 +303,6 @@ pub async fn list_project_files(
     auth_user: AuthUser,
     Path(project_id): Path<Uuid>,
 ) -> Result<Json<Vec<FileMetadata>>> {
-
     // Check if project belongs to user
     let _project = sqlx::query_as::<_, Project>(
         "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2"
@@ -308,7 +330,7 @@ pub async fn list_project_files(
         LEFT JOIN folders fol ON fol.id = f.folder_id
         WHERE f.project_id = $1
         ORDER BY f.upload_date DESC
-        "#
+        "#,
     )
     .bind(project_id)
     .fetch_all(&state.pool)
@@ -322,7 +344,6 @@ pub async fn delete_file(
     auth_user: AuthUser,
     Path(file_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>> {
-
     // Get file and check ownership
     let file = sqlx::query_as::<_, File>(
         r#"
@@ -341,7 +362,8 @@ pub async fn delete_file(
     // Delete file from disk
     let file_path = PathBuf::from(&file.file_path);
     if file_path.exists() {
-        fs::remove_file(&file_path).await
+        fs::remove_file(&file_path)
+            .await
             .map_err(|e| AppError::FileError(format!("Failed to delete file: {}", e)))?;
     }
 

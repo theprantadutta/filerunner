@@ -1,14 +1,14 @@
-use axum::{
-    extract::State,
-    Json,
-};
+use axum::{extract::State, Json};
 use sqlx::PgPool;
 use validator::Validate;
 
 use crate::{
     error::{AppError, Result},
     middleware::AuthUser,
-    models::{AuthResponse, ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest, LoginRequest, User, UserInfo, UserRole},
+    models::{
+        AuthResponse, ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest,
+        LoginRequest, User, UserInfo, UserRole,
+    },
     utils::{create_token, hash_password, verify_password},
     AppState,
 };
@@ -18,7 +18,8 @@ pub async fn register(
     Json(payload): Json<CreateUserRequest>,
 ) -> Result<Json<AuthResponse>> {
     // Validate input
-    payload.validate()
+    payload
+        .validate()
         .map_err(|e| AppError::ValidationError(e.to_string()))?;
 
     // Check if signup is allowed
@@ -69,7 +70,8 @@ pub async fn login(
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>> {
     // Validate input
-    payload.validate()
+    payload
+        .validate()
         .map_err(|e| AppError::ValidationError(e.to_string()))?;
 
     // Get user by email
@@ -132,7 +134,8 @@ pub async fn change_password(
     Json(payload): Json<ChangePasswordRequest>,
 ) -> Result<Json<ChangePasswordResponse>> {
     // Validate input
-    payload.validate()
+    payload
+        .validate()
         .map_err(|e| AppError::ValidationError(e.to_string()))?;
 
     // Get user with password hash
@@ -152,7 +155,9 @@ pub async fn change_password(
         .map_err(|e| AppError::InternalError(format!("Password verification failed: {}", e)))?;
 
     if !is_valid {
-        return Err(AppError::BadRequest("Current password is incorrect".to_string()));
+        return Err(AppError::BadRequest(
+            "Current password is incorrect".to_string(),
+        ));
     }
 
     // Hash new password
@@ -180,11 +185,10 @@ pub async fn change_password(
 // Admin function to create admin user on startup
 pub async fn ensure_admin_user(pool: &PgPool, email: &str, password: &str) -> Result<()> {
     // Check if admin already exists
-    let admin_exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM users WHERE role = 'admin')"
-    )
-    .fetch_one(pool)
-    .await?;
+    let admin_exists =
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM users WHERE role = 'admin')")
+            .fetch_one(pool)
+            .await?;
 
     if admin_exists {
         tracing::info!("Admin user already exists");
@@ -208,7 +212,10 @@ pub async fn ensure_admin_user(pool: &PgPool, email: &str, password: &str) -> Re
     .execute(pool)
     .await?;
 
-    tracing::info!("Admin user created: {} (password change required on first login)", email);
+    tracing::info!(
+        "Admin user created: {} (password change required on first login)",
+        email
+    );
 
     Ok(())
 }

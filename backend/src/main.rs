@@ -6,6 +6,8 @@ mod middleware;
 mod models;
 mod utils;
 
+use axum::http::HeaderValue;
+use axum::http::{header, Method};
 use axum::{
     middleware as axum_middleware,
     routing::{delete, get, post, put},
@@ -13,12 +15,10 @@ use axum::{
 };
 use sqlx::PgPool;
 use std::sync::Arc;
-use axum::http::{header, Method};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::CorsLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
-use axum::http::HeaderValue;
 
 use config::Config;
 use handlers::{
@@ -58,7 +58,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &config.database_url,
         config.db_min_connections,
         config.db_max_connections,
-    ).await?;
+    )
+    .await?;
     tracing::info!(
         "Database connection pool established (min: {}, max: {})",
         config.db_min_connections,
@@ -127,11 +128,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
     // Upload routes with rate limiting (API key based)
-    let upload_routes = Router::new()
-        .route("/api/upload", post(upload_file))
-        .layer(GovernorLayer {
-            config: Arc::new(upload_rate_limit),
-        });
+    let upload_routes =
+        Router::new()
+            .route("/api/upload", post(upload_file))
+            .layer(GovernorLayer {
+                config: Arc::new(upload_rate_limit),
+            });
 
     // Build router
     let app = Router::new()

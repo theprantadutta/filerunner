@@ -81,10 +81,7 @@ pub async fn require_auth(
     Ok(next.run(request).await)
 }
 
-pub async fn require_admin(
-    mut request: Request,
-    next: Next,
-) -> Result<Response> {
+pub async fn require_admin(mut request: Request, next: Next) -> Result<Response> {
     let auth_user = request
         .extensions()
         .get::<AuthUser>()

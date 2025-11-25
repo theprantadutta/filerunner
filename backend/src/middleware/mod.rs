@@ -1,3 +1,3 @@
 pub mod auth;
 
-pub use auth::{AuthUser, require_auth, require_admin};
+pub use auth::{require_admin, require_auth, AuthUser};

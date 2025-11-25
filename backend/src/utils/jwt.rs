@@ -7,7 +7,7 @@ use crate::error::{AppError, Result};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,  // User ID
+    pub sub: String, // User ID
     pub email: String,
     pub role: String,
     pub exp: i64,

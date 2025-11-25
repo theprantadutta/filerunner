@@ -16,14 +16,22 @@ pub struct Project {
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct CreateProjectRequest {
-    #[validate(length(min = 1, max = 255, message = "Project name must be between 1 and 255 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 255,
+        message = "Project name must be between 1 and 255 characters"
+    ))]
     pub name: String,
     pub is_public: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct UpdateProjectRequest {
-    #[validate(length(min = 1, max = 255, message = "Project name must be between 1 and 255 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 255,
+        message = "Project name must be between 1 and 255 characters"
+    ))]
     pub name: Option<String>,
     pub is_public: Option<bool>,
 }

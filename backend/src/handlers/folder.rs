@@ -23,7 +23,8 @@ pub async fn create_folder(
     auth_user: AuthUser,
     Json(payload): Json<CreateFolderRequest>,
 ) -> Result<Json<Folder>> {
-    payload.validate()
+    payload
+        .validate()
         .map_err(|e| AppError::ValidationError(e.to_string()))?;
 
     // Check if project belongs to user
@@ -60,7 +61,6 @@ pub async fn list_folders(
     auth_user: AuthUser,
     Query(query): Query<ListFoldersQuery>,
 ) -> Result<Json<Vec<FolderResponse>>> {
-
     // Check if project belongs to user
     let _project = sqlx::query_as::<_, Project>(
         "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2"
@@ -111,7 +111,6 @@ pub async fn update_folder_visibility(
     Path(folder_id): Path<Uuid>,
     Json(payload): Json<UpdateFolderVisibilityRequest>,
 ) -> Result<Json<Folder>> {
-
     // Check if folder's project belongs to user
     let _folder = sqlx::query_as::<_, Folder>(
         r#"

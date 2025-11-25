@@ -17,7 +17,8 @@ pub async fn create_project(
     auth_user: AuthUser,
     Json(payload): Json<CreateProjectRequest>,
 ) -> Result<Json<Project>> {
-    payload.validate()
+    payload
+        .validate()
         .map_err(|e| AppError::ValidationError(e.to_string()))?;
 
     let is_public = payload.is_public.unwrap_or(false);
@@ -72,7 +73,6 @@ pub async fn get_project(
     auth_user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ProjectResponse>> {
-
     let project = sqlx::query_as::<_, Project>(
         r#"
         SELECT id, user_id, name, api_key, is_public, created_at
@@ -114,7 +114,8 @@ pub async fn update_project(
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateProjectRequest>,
 ) -> Result<Json<Project>> {
-    payload.validate()
+    payload
+        .validate()
         .map_err(|e| AppError::ValidationError(e.to_string()))?;
 
     // Check if project exists and belongs to user
@@ -152,14 +153,11 @@ pub async fn delete_project(
     auth_user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>> {
-
-    let result = sqlx::query(
-        "DELETE FROM projects WHERE id = $1 AND user_id = $2"
-    )
-    .bind(id)
-    .bind(auth_user.id)
-    .execute(&state.pool)
-    .await?;
+    let result = sqlx::query("DELETE FROM projects WHERE id = $1 AND user_id = $2")
+        .bind(id)
+        .bind(auth_user.id)
+        .execute(&state.pool)
+        .await?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Project not found".to_string()));
@@ -175,7 +173,6 @@ pub async fn regenerate_api_key(
     auth_user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Project>> {
-
     let project = sqlx::query_as::<_, Project>(
         r#"
         UPDATE projects
