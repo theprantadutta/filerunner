@@ -28,7 +28,7 @@ pub struct UpdateProjectRequest {
     pub is_public: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, FromRow)]
 pub struct ProjectResponse {
     pub id: Uuid,
     pub name: String,

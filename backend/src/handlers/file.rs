@@ -2,7 +2,7 @@ use axum::{
     body::Body,
     extract::{Multipart, Path, State},
     http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::Response,
     Json,
 };
 use std::path::PathBuf;
@@ -70,6 +70,23 @@ pub async fn upload_file(
 
     let file_data = file_data.ok_or(AppError::BadRequest("No file provided".to_string()))?;
     let file_name = file_name.ok_or(AppError::BadRequest("No filename provided".to_string()))?;
+
+    // Validate folder_path to prevent path traversal attacks
+    if let Some(ref path) = folder_path {
+        // Check for path traversal attempts
+        if path.contains("..") || path.starts_with('/') || path.starts_with('\\')
+            || path.contains("//") || path.contains("\\\\") || path.contains('\0') {
+            return Err(AppError::BadRequest("Invalid folder path: path traversal not allowed".to_string()));
+        }
+        // Validate characters (alphanumeric, underscore, hyphen, forward slash, dot)
+        if !path.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '/' || c == '.') {
+            return Err(AppError::BadRequest("Invalid folder path: contains invalid characters".to_string()));
+        }
+        // Prevent hidden folders (starting with dot)
+        if path.starts_with('.') || path.contains("/.") {
+            return Err(AppError::BadRequest("Invalid folder path: hidden folders not allowed".to_string()));
+        }
+    }
 
     // Check file size
     if file_data.len() > state.config.max_file_size {
@@ -244,7 +261,7 @@ pub async fn download_file(
         .map_err(|e| AppError::FileError(format!("Failed to read file: {}", e)))?;
 
     // Build response with proper headers
-    let mut response = Response::builder()
+    let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, file.mime_type)
         .header(header::CONTENT_LENGTH, file_data.len())
@@ -265,7 +282,7 @@ pub async fn list_project_files(
 ) -> Result<Json<Vec<FileMetadata>>> {
 
     // Check if project belongs to user
-    let project = sqlx::query_as::<_, Project>(
+    let _project = sqlx::query_as::<_, Project>(
         "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2"
     )
     .bind(project_id)
@@ -274,39 +291,30 @@ pub async fn list_project_files(
     .await?
     .ok_or(AppError::NotFound("Project not found".to_string()))?;
 
-    // Get all files for this project
-    let files = sqlx::query_as::<_, File>(
-        "SELECT id, project_id, folder_id, original_name, stored_name, file_path, size, mime_type, upload_date FROM files WHERE project_id = $1 ORDER BY upload_date DESC"
+    // Get all files with folder paths in a single query (avoid N+1)
+    let files = sqlx::query_as::<_, FileMetadata>(
+        r#"
+        SELECT
+            f.id,
+            f.project_id,
+            f.folder_id,
+            fol.path as folder_path,
+            f.original_name,
+            f.size,
+            f.mime_type,
+            f.upload_date,
+            '/api/files/' || f.id::text as download_url
+        FROM files f
+        LEFT JOIN folders fol ON fol.id = f.folder_id
+        WHERE f.project_id = $1
+        ORDER BY f.upload_date DESC
+        "#
     )
     .bind(project_id)
     .fetch_all(&state.pool)
     .await?;
 
-    let mut file_metadata_list = Vec::new();
-    for file in files {
-        let folder_path = if let Some(folder_id) = file.folder_id {
-            sqlx::query_scalar::<_, String>("SELECT path FROM folders WHERE id = $1")
-                .bind(folder_id)
-                .fetch_optional(&state.pool)
-                .await?
-        } else {
-            None
-        };
-
-        file_metadata_list.push(FileMetadata {
-            id: file.id,
-            project_id: file.project_id,
-            folder_id: file.folder_id,
-            folder_path,
-            original_name: file.original_name,
-            size: file.size,
-            mime_type: file.mime_type,
-            upload_date: file.upload_date,
-            download_url: format!("/api/files/{}", file.id),
-        });
-    }
-
-    Ok(Json(file_metadata_list))
+    Ok(Json(files))
 }
 
 pub async fn delete_file(

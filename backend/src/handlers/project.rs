@@ -42,45 +42,29 @@ pub async fn list_projects(
     State(state): State<AppState>,
     auth_user: AuthUser,
 ) -> Result<Json<Vec<ProjectResponse>>> {
-
-    let projects = sqlx::query_as::<_, Project>(
+    // Single query with LEFT JOIN to avoid N+1 problem
+    let projects = sqlx::query_as::<_, ProjectResponse>(
         r#"
-        SELECT id, user_id, name, api_key, is_public, created_at
-        FROM projects
-        WHERE user_id = $1
-        ORDER BY created_at DESC
+        SELECT
+            p.id,
+            p.name,
+            p.api_key,
+            p.is_public,
+            p.created_at,
+            COUNT(f.id) as file_count,
+            COALESCE(SUM(f.size), 0) as total_size
+        FROM projects p
+        LEFT JOIN files f ON f.project_id = p.id
+        WHERE p.user_id = $1
+        GROUP BY p.id, p.name, p.api_key, p.is_public, p.created_at
+        ORDER BY p.created_at DESC
         "#,
     )
     .bind(auth_user.id)
     .fetch_all(&state.pool)
     .await?;
 
-    // Get file counts and sizes for each project
-    let mut project_responses = Vec::new();
-    for project in projects {
-        let stats = sqlx::query_as::<_, (Option<i64>, Option<i64>)>(
-            r#"
-            SELECT COUNT(*), COALESCE(SUM(size), 0)
-            FROM files
-            WHERE project_id = $1
-            "#,
-        )
-        .bind(project.id)
-        .fetch_one(&state.pool)
-        .await?;
-
-        project_responses.push(ProjectResponse {
-            id: project.id,
-            name: project.name,
-            api_key: project.api_key,
-            is_public: project.is_public,
-            created_at: project.created_at,
-            file_count: stats.0,
-            total_size: stats.1,
-        });
-    }
-
-    Ok(Json(project_responses))
+    Ok(Json(projects))
 }
 
 pub async fn get_project(

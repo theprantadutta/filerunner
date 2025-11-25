@@ -113,7 +113,7 @@ pub async fn update_folder_visibility(
 ) -> Result<Json<Folder>> {
 
     // Check if folder's project belongs to user
-    let folder = sqlx::query_as::<_, Folder>(
+    let _folder = sqlx::query_as::<_, Folder>(
         r#"
         SELECT f.id, f.project_id, f.path, f.is_public, f.created_at
         FROM folders f

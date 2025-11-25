@@ -8,7 +8,7 @@ edition = "2021"
 axum = { version = "0.7", features = ["multipart", "macros"] }
 tokio = { version = "1.35", features = ["full"] }
 tower = { version = "0.4", features = ["util"] }
-tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
+tower-http = { version = "0.5", features = ["fs", "cors", "trace", "set-header"] }
 
 # Database
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }
@@ -47,6 +47,10 @@ http-body-util = "0.1"
 
 # Validation
 validator = { version = "0.18", features = ["derive"] }
+
+# Rate limiting
+governor = "0.6"
+tower_governor = "0.4"
 
 [profile.release]
 opt-level = 3

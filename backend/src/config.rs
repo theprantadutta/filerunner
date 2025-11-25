@@ -13,6 +13,8 @@ pub struct Config {
     pub allow_signup: bool,
     pub admin_email: String,
     pub admin_password: String,
+    pub db_min_connections: u32,
+    pub db_max_connections: u32,
 }
 
 impl Config {
@@ -50,6 +52,12 @@ impl Config {
                 .unwrap_or_else(|_| "admin@example.com".to_string()),
             admin_password: env::var("ADMIN_PASSWORD")
                 .unwrap_or_else(|_| "admin".to_string()),
+            db_min_connections: env::var("DB_MIN_CONNECTIONS")
+                .unwrap_or_else(|_| "2".to_string())
+                .parse()?,
+            db_max_connections: env::var("DB_MAX_CONNECTIONS")
+                .unwrap_or_else(|_| "10".to_string())
+                .parse()?,
         };
 
         Ok(config)

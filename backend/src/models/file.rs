@@ -16,7 +16,7 @@ pub struct File {
     pub upload_date: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, FromRow)]
 pub struct FileMetadata {
     pub id: Uuid,
     pub project_id: Uuid,

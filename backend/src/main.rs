@@ -15,7 +15,10 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use axum::http::{header, Method};
 use tower_http::cors::CorsLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use axum::http::HeaderValue;
 
 use config::Config;
 use handlers::{
@@ -51,8 +54,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Configuration loaded");
 
     // Create database pool
-    let pool = db::create_pool(&config.database_url).await?;
-    tracing::info!("Database connection established");
+    let pool = db::create_pool(
+        &config.database_url,
+        config.db_min_connections,
+        config.db_max_connections,
+    ).await?;
+    tracing::info!(
+        "Database connection pool established (min: {}, max: {})",
+        config.db_min_connections,
+        config.db_max_connections
+    );
 
     // Run migrations
     tracing::info!("Running database migrations...");
@@ -93,11 +104,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             header::HeaderName::from_static("x-api-key"),
         ]);
 
-    // Build router
-    let app = Router::new()
-        // Auth routes (public)
+    // Configure rate limiting for auth endpoints (5 requests per second per IP)
+    let auth_rate_limit = GovernorConfigBuilder::default()
+        .per_second(5)
+        .burst_size(10)
+        .finish()
+        .unwrap();
+
+    // Configure rate limiting for file uploads (10 requests per minute per IP)
+    let upload_rate_limit = GovernorConfigBuilder::default()
+        .per_second(1)
+        .burst_size(10)
+        .finish()
+        .unwrap();
+
+    // Auth routes with rate limiting (public)
+    let auth_routes = Router::new()
         .route("/api/auth/register", post(register))
         .route("/api/auth/login", post(login))
+        .layer(GovernorLayer {
+            config: Arc::new(auth_rate_limit),
+        });
+
+    // Upload routes with rate limiting (API key based)
+    let upload_routes = Router::new()
+        .route("/api/upload", post(upload_file))
+        .layer(GovernorLayer {
+            config: Arc::new(upload_rate_limit),
+        });
+
+    // Build router
+    let app = Router::new()
+        // Merge rate-limited auth routes
+        .merge(auth_routes)
         // Auth routes (protected)
         .route("/api/auth/me", get(get_current_user))
         .route("/api/auth/change-password", put(change_password))
@@ -119,12 +158,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             app_state.clone(),
             require_auth,
         ))
-        // File upload/download (API key based)
-        .route("/api/upload", post(upload_file))
+        // Merge rate-limited upload routes
+        .merge(upload_routes)
+        // File download (API key based, no rate limit needed for downloads)
         .route("/api/files/:id", get(download_file))
         // Health check
         .route("/health", get(|| async { "OK" }))
         .layer(cors)
+        // Security headers
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::HeaderName::from_static("x-xss-protection"),
+            HeaderValue::from_static("1; mode=block"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::HeaderName::from_static("referrer-policy"),
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::HeaderName::from_static("permissions-policy"),
+            HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+        ))
         .with_state(app_state);
 
     let addr = format!("{}:{}", config.server_host, config.server_port);
