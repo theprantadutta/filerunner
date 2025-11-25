@@ -135,10 +135,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config: Arc::new(upload_rate_limit),
             });
 
-    // Build router
-    let app = Router::new()
-        // Merge rate-limited auth routes
-        .merge(auth_routes)
+    // Protected routes (require authentication)
+    let protected_routes = Router::new()
         // Auth routes (protected)
         .route("/api/auth/me", get(get_current_user))
         .route("/api/auth/change-password", put(change_password))
@@ -154,13 +152,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/folders", post(create_folder))
         .route("/api/folders", get(list_folders))
         .route("/api/folders/:id/visibility", put(update_folder_visibility))
-        // File routes (protected for some)
+        // File routes (protected)
         .route("/api/files/:id", delete(delete_file))
         .layer(axum_middleware::from_fn_with_state(
             app_state.clone(),
             require_auth,
-        ))
-        // Merge rate-limited upload routes
+        ));
+
+    // Build router
+    let app = Router::new()
+        // Merge protected routes (with auth middleware)
+        .merge(protected_routes)
+        // Merge public auth routes (no auth required)
+        .merge(auth_routes)
+        // Merge rate-limited upload routes (API key based, no JWT auth)
         .merge(upload_routes)
         // File download (API key based, no rate limit needed for downloads)
         .route("/api/files/:id", get(download_file))
