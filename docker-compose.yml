@@ -30,9 +30,11 @@ services:
       - filerunner-network
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: theprantadutta/filerunner-backend:latest
+    # To build locally instead, comment out 'image' and uncomment below:
+    # build:
+    #   context: ./backend
+    #   dockerfile: Dockerfile
     container_name: filerunner-backend
     env_file:
       - .env
@@ -67,11 +69,13 @@ services:
     restart: unless-stopped
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost/api}
+    image: theprantadutta/filerunner-frontend:latest
+    # To build locally instead, comment out 'image' and uncomment below:
+    # build:
+    #   context: ./frontend
+    #   dockerfile: Dockerfile
+    #   args:
+    #     NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost/api}
     container_name: filerunner-frontend
     env_file:
       - .env
