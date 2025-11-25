@@ -28,6 +28,7 @@ pub struct User {
     pub password_hash: String,
     pub role: UserRole,
     pub created_at: DateTime<Utc>,
+    pub must_change_password: bool,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -57,6 +58,7 @@ pub struct UserInfo {
     pub email: String,
     pub role: UserRole,
     pub created_at: DateTime<Utc>,
+    pub must_change_password: bool,
 }
 
 impl From<User> for UserInfo {
@@ -66,6 +68,19 @@ impl From<User> for UserInfo {
             email: user.email,
             role: user.role,
             created_at: user.created_at,
+            must_change_password: user.must_change_password,
         }
     }
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    #[validate(length(min = 8, message = "Password must be at least 8 characters"))]
+    pub new_password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChangePasswordResponse {
+    pub message: String,
 }

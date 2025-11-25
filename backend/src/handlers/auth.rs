@@ -8,7 +8,7 @@ use validator::Validate;
 use crate::{
     error::{AppError, Result},
     middleware::AuthUser,
-    models::{AuthResponse, CreateUserRequest, LoginRequest, User, UserInfo, UserRole},
+    models::{AuthResponse, ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest, LoginRequest, User, UserInfo, UserRole},
     utils::{create_token, hash_password, verify_password},
     AppState,
 };
@@ -30,12 +30,12 @@ pub async fn register(
     let password_hash = hash_password(&payload.password)
         .map_err(|e| AppError::InternalError(format!("Failed to hash password: {}", e)))?;
 
-    // Insert user
+    // Insert user (regular users don't need to change password)
     let user = sqlx::query_as::<_, User>(
         r#"
-        INSERT INTO users (email, password_hash, role)
-        VALUES ($1, $2, $3)
-        RETURNING id, email, password_hash, role, created_at
+        INSERT INTO users (email, password_hash, role, must_change_password)
+        VALUES ($1, $2, $3, FALSE)
+        RETURNING id, email, password_hash, role, created_at, must_change_password
         "#,
     )
     .bind(&payload.email)
@@ -75,7 +75,7 @@ pub async fn login(
     // Get user by email
     let user = sqlx::query_as::<_, User>(
         r#"
-        SELECT id, email, password_hash, role, created_at
+        SELECT id, email, password_hash, role, created_at, must_change_password
         FROM users
         WHERE email = $1
         "#,
@@ -108,13 +108,72 @@ pub async fn login(
 }
 
 pub async fn get_current_user(
+    State(state): State<AppState>,
     auth_user: AuthUser,
 ) -> Result<Json<UserInfo>> {
-    Ok(Json(UserInfo {
-        id: auth_user.id,
-        email: auth_user.email,
-        role: auth_user.role,
-        created_at: chrono::Utc::now(), // We could fetch from DB if needed
+    // Fetch full user info from DB to get must_change_password
+    let user = sqlx::query_as::<_, User>(
+        r#"
+        SELECT id, email, password_hash, role, created_at, must_change_password
+        FROM users
+        WHERE id = $1
+        "#,
+    )
+    .bind(auth_user.id)
+    .fetch_one(&state.pool)
+    .await?;
+
+    Ok(Json(user.into()))
+}
+
+pub async fn change_password(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Json(payload): Json<ChangePasswordRequest>,
+) -> Result<Json<ChangePasswordResponse>> {
+    // Validate input
+    payload.validate()
+        .map_err(|e| AppError::ValidationError(e.to_string()))?;
+
+    // Get user with password hash
+    let user = sqlx::query_as::<_, User>(
+        r#"
+        SELECT id, email, password_hash, role, created_at, must_change_password
+        FROM users
+        WHERE id = $1
+        "#,
+    )
+    .bind(auth_user.id)
+    .fetch_one(&state.pool)
+    .await?;
+
+    // Verify current password
+    let is_valid = verify_password(&payload.current_password, &user.password_hash)
+        .map_err(|e| AppError::InternalError(format!("Password verification failed: {}", e)))?;
+
+    if !is_valid {
+        return Err(AppError::BadRequest("Current password is incorrect".to_string()));
+    }
+
+    // Hash new password
+    let new_password_hash = hash_password(&payload.new_password)
+        .map_err(|e| AppError::InternalError(format!("Failed to hash password: {}", e)))?;
+
+    // Update password and clear must_change_password flag
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET password_hash = $1, must_change_password = FALSE
+        WHERE id = $2
+        "#,
+    )
+    .bind(&new_password_hash)
+    .bind(auth_user.id)
+    .execute(&state.pool)
+    .await?;
+
+    Ok(Json(ChangePasswordResponse {
+        message: "Password changed successfully".to_string(),
     }))
 }
 
@@ -132,15 +191,15 @@ pub async fn ensure_admin_user(pool: &PgPool, email: &str, password: &str) -> Re
         return Ok(());
     }
 
-    // Create admin user
+    // Create admin user with must_change_password = true
     let password_hash = hash_password(password)
         .map_err(|e| AppError::InternalError(format!("Failed to hash password: {}", e)))?;
 
     sqlx::query(
         r#"
-        INSERT INTO users (email, password_hash, role)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (email) DO UPDATE SET role = 'admin'
+        INSERT INTO users (email, password_hash, role, must_change_password)
+        VALUES ($1, $2, $3, TRUE)
+        ON CONFLICT (email) DO UPDATE SET role = 'admin', must_change_password = TRUE
         "#,
     )
     .bind(email)
@@ -149,7 +208,7 @@ pub async fn ensure_admin_user(pool: &PgPool, email: &str, password: &str) -> Re
     .execute(pool)
     .await?;
 
-    tracing::info!("Admin user created: {}", email);
+    tracing::info!("Admin user created: {} (password change required on first login)", email);
 
     Ok(())
 }

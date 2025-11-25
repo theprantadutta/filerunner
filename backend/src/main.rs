@@ -13,12 +13,13 @@ use axum::{
 };
 use sqlx::PgPool;
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use axum::http::{header, Method};
+use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use config::Config;
 use handlers::{
-    auth::{ensure_admin_user, get_current_user, login, register},
+    auth::{change_password, ensure_admin_user, get_current_user, login, register},
     file::{delete_file, download_file, list_project_files, upload_file},
     folder::{create_folder, list_folders, update_folder_visibility},
     project::{
@@ -70,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config: Arc::new(config.clone()),
     };
 
-    // Configure CORS
+    // Configure CORS with specific methods and headers for security
     let cors = CorsLayer::new()
         .allow_origin(
             config
@@ -79,15 +80,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map(|origin| origin.parse().unwrap())
                 .collect::<Vec<_>>(),
         )
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::HeaderName::from_static("x-api-key"),
+        ]);
 
     // Build router
     let app = Router::new()
         // Auth routes (public)
         .route("/api/auth/register", post(register))
         .route("/api/auth/login", post(login))
+        // Auth routes (protected)
         .route("/api/auth/me", get(get_current_user))
+        .route("/api/auth/change-password", put(change_password))
         // Project routes (protected)
         .route("/api/projects", post(create_project))
         .route("/api/projects", get(list_projects))

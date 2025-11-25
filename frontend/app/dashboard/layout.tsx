@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
+import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { LogOut, FolderOpen } from "lucide-react";
 
 export default function DashboardLayout({
@@ -31,6 +32,9 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Show forced password change modal if required */}
+      {user?.must_change_password && <ChangePasswordModal isForced={true} />}
+
       <nav className="border-b bg-white">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">

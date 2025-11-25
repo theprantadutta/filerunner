@@ -21,6 +21,7 @@ export interface User {
   email: string;
   role: "admin" | "user";
   created_at: string;
+  must_change_password: boolean;
 }
 
 export interface AuthResponse {
@@ -76,6 +77,12 @@ export const authApi = {
     api.post<AuthResponse>("/auth/login", { email, password }),
 
   me: () => api.get<User>("/auth/me"),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.put<{ message: string }>("/auth/change-password", {
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
 };
 
 // Projects API
