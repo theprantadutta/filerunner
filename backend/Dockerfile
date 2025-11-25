@@ -30,10 +30,14 @@ FROM debian:bookworm-slim
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Install runtime dependencies including curl for health checks
 RUN apt-get update && \
-    apt-get install -y libssl3 ca-certificates && \
+    apt-get install -y libssl3 ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN groupadd --system --gid 1001 backend && \
+    useradd --system --uid 1001 --gid backend backend
 
 # Copy binary from builder
 COPY --from=builder /app/target/release/filerunner-backend /app/filerunner-backend
@@ -41,8 +45,12 @@ COPY --from=builder /app/target/release/filerunner-backend /app/filerunner-backe
 # Copy migrations
 COPY --from=builder /app/migrations /app/migrations
 
-# Create storage directory
-RUN mkdir -p /app/storage
+# Create storage directory and set ownership
+RUN mkdir -p /app/storage && \
+    chown -R backend:backend /app
+
+# Switch to non-root user
+USER backend
 
 # Expose port
 EXPOSE 8000
