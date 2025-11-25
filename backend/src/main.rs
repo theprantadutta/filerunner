@@ -13,6 +13,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use std::net::SocketAddr;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
@@ -201,7 +202,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("FileRunner backend listening on {}", addr);
     tracing::info!("API documentation available at http://{}/", addr);
 
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }
