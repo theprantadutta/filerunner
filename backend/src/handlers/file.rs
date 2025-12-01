@@ -483,7 +483,11 @@ pub async fn delete_folder_files(
         }
         if storage_path.exists() {
             if let Err(e) = fs::remove_dir_all(&storage_path).await {
-                tracing::warn!("Failed to remove folder directory {}: {}", storage_path.display(), e);
+                tracing::warn!(
+                    "Failed to remove folder directory {}: {}",
+                    storage_path.display(),
+                    e
+                );
             }
         }
     }

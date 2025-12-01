@@ -13,8 +13,8 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use std::net::SocketAddr;
 use sqlx::PgPool;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::CorsLayer;
@@ -129,13 +129,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
     // Upload routes with rate limiting (API key based)
-    let upload_routes =
-        Router::new()
-            .route("/api/upload", post(upload_file))
-            .route("/api/folders/delete", post(delete_folder_files))
-            .layer(GovernorLayer {
-                config: Arc::new(upload_rate_limit),
-            });
+    let upload_routes = Router::new()
+        .route("/api/upload", post(upload_file))
+        .route("/api/folders/delete", post(delete_folder_files))
+        .layer(GovernorLayer {
+            config: Arc::new(upload_rate_limit),
+        });
 
     // Protected routes (require authentication)
     let protected_routes = Router::new()
