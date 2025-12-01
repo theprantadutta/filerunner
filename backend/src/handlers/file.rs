@@ -377,3 +377,119 @@ pub async fn delete_file(
         "message": "File deleted successfully"
     })))
 }
+
+#[derive(serde::Deserialize)]
+pub struct DeleteFolderFilesRequest {
+    pub folder_path: String,
+}
+
+/// Delete all files in a folder using API key authentication
+/// This endpoint is useful for cleanup operations from external services
+pub async fn delete_folder_files(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<DeleteFolderFilesRequest>,
+) -> Result<Json<serde_json::Value>> {
+    // Get API key from header
+    let api_key = headers
+        .get("X-API-Key")
+        .and_then(|h| h.to_str().ok())
+        .ok_or(AppError::Unauthorized)?;
+
+    let api_key_uuid = Uuid::parse_str(api_key).map_err(|_| AppError::Unauthorized)?;
+
+    // Get project by API key
+    let project = sqlx::query_as::<_, Project>(
+        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE api_key = $1",
+    )
+    .bind(api_key_uuid)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(AppError::Unauthorized)?;
+
+    let folder_path = &payload.folder_path;
+
+    // Validate folder_path to prevent path traversal attacks
+    if folder_path.contains("..")
+        || folder_path.starts_with('/')
+        || folder_path.starts_with('\\')
+        || folder_path.contains("//")
+        || folder_path.contains("\\\\")
+        || folder_path.contains('\0')
+    {
+        return Err(AppError::BadRequest(
+            "Invalid folder path: path traversal not allowed".to_string(),
+        ));
+    }
+
+    // Validate characters (alphanumeric, underscore, hyphen, forward slash, dot)
+    if !folder_path
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '/' || c == '.')
+    {
+        return Err(AppError::BadRequest(
+            "Invalid folder path: contains invalid characters".to_string(),
+        ));
+    }
+
+    // Get the folder for this project
+    let folder = sqlx::query_as::<_, Folder>(
+        "SELECT id, project_id, path, is_public, created_at FROM folders WHERE project_id = $1 AND path = $2",
+    )
+    .bind(project.id)
+    .bind(folder_path)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let mut deleted_count = 0;
+
+    if let Some(folder) = folder {
+        // Get all files in this folder
+        let files = sqlx::query_as::<_, File>(
+            "SELECT id, project_id, folder_id, original_name, stored_name, file_path, size, mime_type, upload_date FROM files WHERE folder_id = $1"
+        )
+        .bind(folder.id)
+        .fetch_all(&state.pool)
+        .await?;
+
+        // Delete each file from disk
+        for file in &files {
+            let file_path = PathBuf::from(&file.file_path);
+            if file_path.exists() {
+                if let Err(e) = fs::remove_file(&file_path).await {
+                    tracing::warn!("Failed to delete file {}: {}", file_path.display(), e);
+                }
+            }
+            deleted_count += 1;
+        }
+
+        // Delete all files from database
+        sqlx::query("DELETE FROM files WHERE folder_id = $1")
+            .bind(folder.id)
+            .execute(&state.pool)
+            .await?;
+
+        // Delete the folder record
+        sqlx::query("DELETE FROM folders WHERE id = $1")
+            .bind(folder.id)
+            .execute(&state.pool)
+            .await?;
+
+        // Try to remove the physical folder directory
+        let mut storage_path = PathBuf::from(&state.config.storage_path);
+        storage_path.push(project.id.to_string());
+        for segment in folder_path.split('/') {
+            storage_path.push(segment);
+        }
+        if storage_path.exists() {
+            if let Err(e) = fs::remove_dir_all(&storage_path).await {
+                tracing::warn!("Failed to remove folder directory {}: {}", storage_path.display(), e);
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "message": "Folder files deleted successfully",
+        "deleted_count": deleted_count
+    })))
+}

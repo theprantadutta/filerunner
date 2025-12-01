@@ -24,7 +24,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use config::Config;
 use handlers::{
     auth::{change_password, ensure_admin_user, get_current_user, login, register},
-    file::{delete_file, download_file, list_project_files, upload_file},
+    file::{delete_file, delete_folder_files, download_file, list_project_files, upload_file},
     folder::{create_folder, list_folders, update_folder_visibility},
     project::{
         create_project, delete_project, get_project, list_projects, regenerate_api_key,
@@ -132,6 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let upload_routes =
         Router::new()
             .route("/api/upload", post(upload_file))
+            .route("/api/folders/delete", post(delete_folder_files))
             .layer(GovernorLayer {
                 config: Arc::new(upload_rate_limit),
             });
