@@ -76,6 +76,22 @@ import {
 import { formatBytes, formatDate, copyToClipboard, cn } from "@/lib/utils";
 import Link from "next/link";
 
+// Helper to build file URL with API key for private projects
+function getFileUrl(baseUrl: string, downloadUrl: string, isPublic: boolean, apiKey: string, download?: boolean): string {
+  const url = `${baseUrl}${downloadUrl}`;
+  // For private projects, append API key as query param for image/file previews
+  if (!isPublic) {
+    const params = new URLSearchParams();
+    params.set("api_key", apiKey);
+    if (download) params.set("download", "true");
+    return `${url}?${params.toString()}`;
+  }
+  if (download) {
+    return `${url}?download=true`;
+  }
+  return url;
+}
+
 // File type icon mapper
 function getFileIcon(mimeType: string, fileName: string) {
   if (mimeType.startsWith("image/")) return ImageIcon;
@@ -527,7 +543,7 @@ export default function ProjectDetailPage() {
                           {isImage ? (
                             <div className="relative h-12 w-12 overflow-hidden rounded-lg bg-muted">
                               <img
-                                src={`${baseUrl}${file.download_url}`}
+                                src={getFileUrl(baseUrl, file.download_url, project.is_public, project.api_key)}
                                 alt={file.original_name}
                                 className="h-full w-full object-cover"
                               />
@@ -562,7 +578,7 @@ export default function ProjectDetailPage() {
                                 <Copy className="h-4 w-4" />
                               </Button>
                               <a
-                                href={`${baseUrl}${file.download_url}`}
+                                href={getFileUrl(baseUrl, file.download_url, project.is_public, project.api_key)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                               >
@@ -571,7 +587,7 @@ export default function ProjectDetailPage() {
                                 </Button>
                               </a>
                               <a
-                                href={`${baseUrl}${file.download_url}?download=true`}
+                                href={getFileUrl(baseUrl, file.download_url, project.is_public, project.api_key, true)}
                                 download
                               >
                                 <Button variant="ghost" size="icon" className="h-8 w-8" title="Download">
@@ -617,7 +633,7 @@ export default function ProjectDetailPage() {
                       {isImage ? (
                         <div className="relative aspect-video overflow-hidden bg-muted">
                           <img
-                            src={`${baseUrl}${file.download_url}`}
+                            src={getFileUrl(baseUrl, file.download_url, project.is_public, project.api_key)}
                             alt={file.original_name}
                             className="h-full w-full object-cover transition-transform group-hover:scale-105"
                           />
@@ -636,7 +652,7 @@ export default function ProjectDetailPage() {
                           {!selectMode && (
                             <div className="absolute inset-0 bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 flex items-center justify-center gap-2">
                               <a
-                                href={`${baseUrl}${file.download_url}`}
+                                href={getFileUrl(baseUrl, file.download_url, project.is_public, project.api_key)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                               >
@@ -644,7 +660,7 @@ export default function ProjectDetailPage() {
                                   <Eye className="h-4 w-4" />
                                 </Button>
                               </a>
-                              <a href={`${baseUrl}${file.download_url}?download=true`} download>
+                              <a href={getFileUrl(baseUrl, file.download_url, project.is_public, project.api_key, true)} download>
                                 <Button size="icon" variant="secondary" className="h-8 w-8">
                                   <Download className="h-4 w-4" />
                                 </Button>

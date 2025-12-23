@@ -212,10 +212,17 @@ pub async fn upload_file(
     }))
 }
 
+#[derive(serde::Deserialize)]
+pub struct DownloadQuery {
+    pub api_key: Option<String>,
+    pub download: Option<bool>,
+}
+
 pub async fn download_file(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(file_id): Path<Uuid>,
+    axum::extract::Query(query): axum::extract::Query<DownloadQuery>,
 ) -> Result<Response> {
     // Get file from database
     let file = sqlx::query_as::<_, File>(
@@ -235,6 +242,16 @@ pub async fn download_file(
     .await?
     .ok_or(AppError::NotFound("Project not found".to_string()))?;
 
+    // Helper to get API key from header or query param
+    let get_api_key = || -> Option<&str> {
+        // First try header
+        if let Some(key) = headers.get("X-API-Key").and_then(|h| h.to_str().ok()) {
+            return Some(key);
+        }
+        // Then try query param
+        query.api_key.as_deref()
+    };
+
     // Check access permissions
     if !project.is_public {
         // If folder exists, check folder visibility
@@ -248,12 +265,8 @@ pub async fn download_file(
 
             if let Some(folder) = folder {
                 if !folder.is_public {
-                    // Require API key
-                    let api_key = headers
-                        .get("X-API-Key")
-                        .and_then(|h| h.to_str().ok())
-                        .ok_or(AppError::Unauthorized)?;
-
+                    // Require API key (from header or query param)
+                    let api_key = get_api_key().ok_or(AppError::Unauthorized)?;
                     let api_key_uuid =
                         Uuid::parse_str(api_key).map_err(|_| AppError::Unauthorized)?;
 
@@ -263,12 +276,8 @@ pub async fn download_file(
                 }
             }
         } else {
-            // No folder, check project API key
-            let api_key = headers
-                .get("X-API-Key")
-                .and_then(|h| h.to_str().ok())
-                .ok_or(AppError::Unauthorized)?;
-
+            // No folder, check project API key (from header or query param)
+            let api_key = get_api_key().ok_or(AppError::Unauthorized)?;
             let api_key_uuid = Uuid::parse_str(api_key).map_err(|_| AppError::Unauthorized)?;
 
             if api_key_uuid != project.api_key {
