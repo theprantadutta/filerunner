@@ -27,10 +27,10 @@ use handlers::{
         change_password, ensure_admin_user, get_current_user, login, login_legacy, logout,
         logout_all, refresh_token, register, register_legacy,
     },
-    file::{delete_file, delete_folder_files, download_file, list_project_files, upload_file},
+    file::{bulk_delete_files, delete_file, delete_folder_files, download_file, list_project_files, upload_file},
     folder::{create_folder, list_folders, update_folder_visibility},
     project::{
-        create_project, delete_project, get_project, list_projects, regenerate_api_key,
+        create_project, delete_project, empty_project, get_project, list_projects, regenerate_api_key,
         update_project,
     },
 };
@@ -159,11 +159,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/projects/:id", delete(delete_project))
         .route("/api/projects/:id/regenerate-key", post(regenerate_api_key))
         .route("/api/projects/:id/files", get(list_project_files))
+        .route("/api/projects/:id/empty", delete(empty_project))
         // Folder routes (protected)
         .route("/api/folders", post(create_folder))
         .route("/api/folders", get(list_folders))
         .route("/api/folders/:id/visibility", put(update_folder_visibility))
         // File routes (protected)
+        .route("/api/files/bulk", delete(bulk_delete_files))
         .route("/api/files/:id", delete(delete_file))
         .layer(axum_middleware::from_fn_with_state(
             app_state.clone(),

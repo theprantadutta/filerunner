@@ -269,6 +269,11 @@ export const projectsApi = {
     api.post<Project>(`/projects/${id}/regenerate-key`),
 
   listFiles: (id: string) => api.get<FileMetadata[]>(`/projects/${id}/files`),
+
+  emptyProject: (id: string) =>
+    api.delete<{ message: string; deleted_count: number }>(
+      `/projects/${id}/empty`
+    ),
 };
 
 // Files API
@@ -289,6 +294,11 @@ export const filesApi = {
   },
 
   delete: (id: string) => api.delete(`/files/${id}`),
+
+  bulkDelete: (fileIds: string[]) =>
+    api.delete<{ message: string; deleted_count: number }>("/files/bulk", {
+      data: { file_ids: fileIds },
+    }),
 
   getDownloadUrl: (id: string, apiKey?: string) => {
     const url = `${getApiUrl()}/files/${id}`;

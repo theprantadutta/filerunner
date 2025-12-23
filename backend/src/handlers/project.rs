@@ -2,13 +2,15 @@ use axum::{
     extract::{Path, State},
     Json,
 };
+use std::path::PathBuf;
+use tokio::fs;
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
     error::{AppError, Result},
     middleware::AuthUser,
-    models::{CreateProjectRequest, Project, ProjectResponse, UpdateProjectRequest},
+    models::{CreateProjectRequest, File, Project, ProjectResponse, UpdateProjectRequest},
     AppState,
 };
 
@@ -188,4 +190,81 @@ pub async fn regenerate_api_key(
     .ok_or(AppError::NotFound("Project not found".to_string()))?;
 
     Ok(Json(project))
+}
+
+/// Delete all files from a project (empty project)
+/// Requires JWT authentication and project ownership
+pub async fn empty_project(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(project_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>> {
+    // Verify project exists and user owns it
+    let project = sqlx::query_as::<_, Project>(
+        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2",
+    )
+    .bind(project_id)
+    .bind(auth_user.id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(AppError::NotFound("Project not found".to_string()))?;
+
+    // Get all files for this project
+    let files = sqlx::query_as::<_, File>(
+        r#"
+        SELECT id, project_id, folder_id, original_name, stored_name, file_path, size, mime_type, upload_date
+        FROM files
+        WHERE project_id = $1
+        "#,
+    )
+    .bind(project_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let mut deleted_count = 0;
+
+    // Delete each file from disk
+    for file in &files {
+        let file_path = PathBuf::from(&file.file_path);
+        if file_path.exists() {
+            if let Err(e) = fs::remove_file(&file_path).await {
+                tracing::warn!("Failed to delete file {}: {}", file_path.display(), e);
+            }
+        }
+        deleted_count += 1;
+    }
+
+    // Delete all files from database
+    sqlx::query("DELETE FROM files WHERE project_id = $1")
+        .bind(project_id)
+        .execute(&state.pool)
+        .await?;
+
+    // Delete all folders for this project
+    sqlx::query("DELETE FROM folders WHERE project_id = $1")
+        .bind(project_id)
+        .execute(&state.pool)
+        .await?;
+
+    // Try to clean up the project's storage directory
+    let mut storage_path = PathBuf::from(&state.config.storage_path);
+    storage_path.push(project.id.to_string());
+    if storage_path.exists() {
+        // Remove all contents but keep the directory
+        if let Ok(mut entries) = tokio::fs::read_dir(&storage_path).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let path = entry.path();
+                if path.is_dir() {
+                    let _ = fs::remove_dir_all(&path).await;
+                } else {
+                    let _ = fs::remove_file(&path).await;
+                }
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "message": "Project emptied successfully",
+        "deleted_count": deleted_count
+    })))
 }

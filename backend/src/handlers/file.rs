@@ -497,3 +497,66 @@ pub async fn delete_folder_files(
         "deleted_count": deleted_count
     })))
 }
+
+#[derive(serde::Deserialize)]
+pub struct BulkDeleteRequest {
+    pub file_ids: Vec<Uuid>,
+}
+
+/// Bulk delete multiple files by their IDs
+/// Requires JWT authentication and ownership verification
+pub async fn bulk_delete_files(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Json(payload): Json<BulkDeleteRequest>,
+) -> Result<Json<serde_json::Value>> {
+    if payload.file_ids.is_empty() {
+        return Ok(Json(serde_json::json!({
+            "message": "No files to delete",
+            "deleted_count": 0
+        })));
+    }
+
+    // Get all files and verify ownership (user owns the projects they belong to)
+    let files = sqlx::query_as::<_, File>(
+        r#"
+        SELECT f.id, f.project_id, f.folder_id, f.original_name, f.stored_name, f.file_path, f.size, f.mime_type, f.upload_date
+        FROM files f
+        JOIN projects p ON f.project_id = p.id
+        WHERE f.id = ANY($1) AND p.user_id = $2
+        "#,
+    )
+    .bind(&payload.file_ids)
+    .bind(auth_user.id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    if files.is_empty() {
+        return Err(AppError::NotFound("No files found or you don't have permission to delete them".to_string()));
+    }
+
+    let mut deleted_count = 0;
+
+    // Delete each file from disk
+    for file in &files {
+        let file_path = PathBuf::from(&file.file_path);
+        if file_path.exists() {
+            if let Err(e) = fs::remove_file(&file_path).await {
+                tracing::warn!("Failed to delete file {}: {}", file_path.display(), e);
+            }
+        }
+        deleted_count += 1;
+    }
+
+    // Delete from database
+    let file_ids: Vec<Uuid> = files.iter().map(|f| f.id).collect();
+    sqlx::query("DELETE FROM files WHERE id = ANY($1)")
+        .bind(&file_ids)
+        .execute(&state.pool)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "message": "Files deleted successfully",
+        "deleted_count": deleted_count
+    })))
+}

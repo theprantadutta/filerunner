@@ -66,6 +66,12 @@ import {
   Eye,
   HardDrive,
   Calendar,
+  Square,
+  CheckSquare,
+  X,
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { formatBytes, formatDate, copyToClipboard, cn } from "@/lib/utils";
 import Link from "next/link";
@@ -99,6 +105,19 @@ export default function ProjectDetailPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<{ id: string; name: string } | null>(null);
   const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
+
+  // Multi-select state
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+
+  // Bulk delete & empty project dialogs
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [emptyProjectDialogOpen, setEmptyProjectDialogOpen] = useState(false);
+  const [emptyProjectConfirmText, setEmptyProjectConfirmText] = useState("");
 
   const { data: project, isLoading: projectLoading } = useQuery({
     queryKey: ["project", projectId],
@@ -140,6 +159,37 @@ export default function ProjectDetailPage() {
     },
     onError: (error: any) => {
       const message = error.response?.data?.error || "Failed to regenerate key";
+      showToast.error(message);
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (fileIds: string[]) => filesApi.bulkDelete(fileIds),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["files", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      showToast.success(`${variables.length} file${variables.length > 1 ? "s" : ""} deleted`);
+      setBulkDeleteDialogOpen(false);
+      setSelectedFiles(new Set());
+      setSelectMode(false);
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.error || "Failed to delete files";
+      showToast.error(message);
+    },
+  });
+
+  const emptyProjectMutation = useMutation({
+    mutationFn: () => projectsApi.emptyProject(projectId),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ["files", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      showToast.success(`Project emptied - ${response.data.deleted_count} files deleted`);
+      setEmptyProjectDialogOpen(false);
+      setEmptyProjectConfirmText("");
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.error || "Failed to empty project";
       showToast.error(message);
     },
   });
@@ -197,6 +247,51 @@ export default function ProjectDetailPage() {
   const openDeleteDialog = (fileId: string, fileName: string) => {
     setFileToDelete({ id: fileId, name: fileName });
     setDeleteDialogOpen(true);
+  };
+
+  // Pagination logic
+  const totalFiles = files?.length || 0;
+  const totalPages = Math.ceil(totalFiles / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedFiles = files?.slice(startIndex, endIndex) || [];
+
+  // Reset to page 1 when items per page changes or files change
+  const handleItemsPerPageChange = (newItemsPerPage: number) => {
+    setItemsPerPage(newItemsPerPage);
+    setCurrentPage(1);
+  };
+
+  // Selection helpers
+  const toggleFileSelection = (fileId: string) => {
+    setSelectedFiles((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(fileId)) {
+        newSet.delete(fileId);
+      } else {
+        newSet.add(fileId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllOnPage = () => {
+    const newSet = new Set(selectedFiles);
+    paginatedFiles.forEach((file) => newSet.add(file.id));
+    setSelectedFiles(newSet);
+  };
+
+  const deselectAllOnPage = () => {
+    const newSet = new Set(selectedFiles);
+    paginatedFiles.forEach((file) => newSet.delete(file.id));
+    setSelectedFiles(newSet);
+  };
+
+  const allOnPageSelected = paginatedFiles.length > 0 && paginatedFiles.every((file) => selectedFiles.has(file.id));
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedFiles(new Set());
   };
 
   if (projectLoading) {
@@ -309,10 +404,66 @@ export default function ProjectDetailPage() {
         {/* Files Tab */}
         <TabsContent value="files" className="space-y-4">
           {files && files.length > 0 && (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                {files.length} file{files.length !== 1 ? "s" : ""}
-              </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              {/* Left side - Select mode controls */}
+              <div className="flex items-center gap-2">
+                {selectMode ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={allOnPageSelected ? deselectAllOnPage : selectAllOnPage}
+                    >
+                      {allOnPageSelected ? (
+                        <CheckSquare className="h-4 w-4" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
+                      {allOnPageSelected ? "Deselect Page" : "Select Page"}
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      {selectedFiles.size} selected
+                    </span>
+                    {selectedFiles.size > 0 && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="gap-2"
+                        onClick={() => setBulkDeleteDialogOpen(true)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete Selected
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={exitSelectMode}
+                    >
+                      <X className="h-4 w-4" />
+                      Cancel
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => setSelectMode(true)}
+                    >
+                      <CheckSquare className="h-4 w-4" />
+                      Select
+                    </Button>
+                    <p className="text-sm text-muted-foreground">
+                      Showing {startIndex + 1}-{Math.min(endIndex, totalFiles)} of {totalFiles} file{totalFiles !== 1 ? "s" : ""}
+                    </p>
+                  </>
+                )}
+              </div>
+
+              {/* Right side - View mode toggle */}
               <div className="flex gap-1 rounded-lg border p-1">
                 <Button
                   variant={viewMode === "list" ? "secondary" : "ghost"}
@@ -345,17 +496,34 @@ export default function ProjectDetailPage() {
               <Card>
                 <CardContent className="p-0">
                   <div className="divide-y">
-                    {files.map((file, index) => {
+                    {paginatedFiles.map((file, index) => {
                       const FileTypeIcon = getFileIcon(file.mime_type, file.original_name);
                       const isImage = file.mime_type.startsWith("image/");
                       const { baseUrl } = getConfig();
+                      const isSelected = selectedFiles.has(file.id);
 
                       return (
                         <div
                           key={file.id}
-                          className="flex items-center gap-4 p-4 transition-colors hover:bg-muted/50 animate-fade-up"
+                          className={cn(
+                            "flex items-center gap-4 p-4 transition-colors animate-fade-up",
+                            selectMode ? "cursor-pointer" : "",
+                            isSelected ? "bg-primary/5" : "hover:bg-muted/50"
+                          )}
                           style={{ animationDelay: `${index * 30}ms` }}
+                          onClick={selectMode ? () => toggleFileSelection(file.id) : undefined}
                         >
+                          {/* Checkbox for select mode */}
+                          {selectMode && (
+                            <div className="flex-shrink-0">
+                              {isSelected ? (
+                                <CheckSquare className="h-5 w-5 text-primary" />
+                              ) : (
+                                <Square className="h-5 w-5 text-muted-foreground" />
+                              )}
+                            </div>
+                          )}
+
                           {isImage ? (
                             <div className="relative h-12 w-12 overflow-hidden rounded-lg bg-muted">
                               <img
@@ -382,43 +550,45 @@ export default function ProjectDetailPage() {
                               <span>{formatDate(file.upload_date)}</span>
                             </p>
                           </div>
-                          <div className="flex gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => handleCopyUrl(file.download_url)}
-                              title="Copy URL"
-                            >
-                              <Copy className="h-4 w-4" />
-                            </Button>
-                            <a
-                              href={`${baseUrl}${file.download_url}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <Button variant="ghost" size="icon" className="h-8 w-8" title="View">
-                                <Eye className="h-4 w-4" />
+                          {!selectMode && (
+                            <div className="flex gap-2">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => handleCopyUrl(file.download_url)}
+                                title="Copy URL"
+                              >
+                                <Copy className="h-4 w-4" />
                               </Button>
-                            </a>
-                            <a
-                              href={`${baseUrl}${file.download_url}?download=true`}
-                              download
-                            >
-                              <Button variant="ghost" size="icon" className="h-8 w-8" title="Download">
-                                <Download className="h-4 w-4" />
+                              <a
+                                href={`${baseUrl}${file.download_url}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <Button variant="ghost" size="icon" className="h-8 w-8" title="View">
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              </a>
+                              <a
+                                href={`${baseUrl}${file.download_url}?download=true`}
+                                download
+                              >
+                                <Button variant="ghost" size="icon" className="h-8 w-8" title="Download">
+                                  <Download className="h-4 w-4" />
+                                </Button>
+                              </a>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                onClick={() => openDeleteDialog(file.id, file.original_name)}
+                                title="Delete"
+                              >
+                                <Trash2 className="h-4 w-4" />
                               </Button>
-                            </a>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive hover:text-destructive"
-                              onClick={() => openDeleteDialog(file.id, file.original_name)}
-                              title="Delete"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -427,16 +597,22 @@ export default function ProjectDetailPage() {
               </Card>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {files.map((file, index) => {
+                {paginatedFiles.map((file, index) => {
                   const FileTypeIcon = getFileIcon(file.mime_type, file.original_name);
                   const isImage = file.mime_type.startsWith("image/");
                   const { baseUrl } = getConfig();
+                  const isSelected = selectedFiles.has(file.id);
 
                   return (
                     <Card
                       key={file.id}
-                      className="group overflow-hidden transition-all hover:shadow-lg animate-fade-up"
+                      className={cn(
+                        "group overflow-hidden transition-all animate-fade-up",
+                        selectMode ? "cursor-pointer" : "hover:shadow-lg",
+                        isSelected ? "ring-2 ring-primary" : ""
+                      )}
                       style={{ animationDelay: `${index * 30}ms` }}
+                      onClick={selectMode ? () => toggleFileSelection(file.id) : undefined}
                     >
                       {isImage ? (
                         <div className="relative aspect-video overflow-hidden bg-muted">
@@ -445,26 +621,52 @@ export default function ProjectDetailPage() {
                             alt={file.original_name}
                             className="h-full w-full object-cover transition-transform group-hover:scale-105"
                           />
-                          <div className="absolute inset-0 bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 flex items-center justify-center gap-2">
-                            <a
-                              href={`${baseUrl}${file.download_url}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <Button size="icon" variant="secondary" className="h-8 w-8">
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                            </a>
-                            <a href={`${baseUrl}${file.download_url}?download=true`} download>
-                              <Button size="icon" variant="secondary" className="h-8 w-8">
-                                <Download className="h-4 w-4" />
-                              </Button>
-                            </a>
-                          </div>
+                          {/* Selection checkbox overlay */}
+                          {selectMode && (
+                            <div className="absolute top-2 left-2">
+                              {isSelected ? (
+                                <div className="flex h-6 w-6 items-center justify-center rounded bg-primary text-primary-foreground">
+                                  <Check className="h-4 w-4" />
+                                </div>
+                              ) : (
+                                <div className="flex h-6 w-6 items-center justify-center rounded border-2 border-white bg-black/30" />
+                              )}
+                            </div>
+                          )}
+                          {!selectMode && (
+                            <div className="absolute inset-0 bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 flex items-center justify-center gap-2">
+                              <a
+                                href={`${baseUrl}${file.download_url}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <Button size="icon" variant="secondary" className="h-8 w-8">
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              </a>
+                              <a href={`${baseUrl}${file.download_url}?download=true`} download>
+                                <Button size="icon" variant="secondary" className="h-8 w-8">
+                                  <Download className="h-4 w-4" />
+                                </Button>
+                              </a>
+                            </div>
+                          )}
                         </div>
                       ) : (
-                        <div className="flex aspect-video items-center justify-center bg-muted">
+                        <div className="relative flex aspect-video items-center justify-center bg-muted">
                           <FileTypeIcon className="h-12 w-12 text-muted-foreground" />
+                          {/* Selection checkbox overlay for non-images */}
+                          {selectMode && (
+                            <div className="absolute top-2 left-2">
+                              {isSelected ? (
+                                <div className="flex h-6 w-6 items-center justify-center rounded bg-primary text-primary-foreground">
+                                  <Check className="h-4 w-4" />
+                                </div>
+                              ) : (
+                                <div className="flex h-6 w-6 items-center justify-center rounded border-2 border-muted-foreground/50 bg-background/50" />
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                       <CardContent className="p-3">
@@ -500,6 +702,111 @@ export default function ProjectDetailPage() {
                 />
               </CardContent>
             </Card>
+          )}
+
+          {/* Pagination Footer */}
+          {files && files.length > 0 && (
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-lg border bg-card p-4">
+              {/* Items per page selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Items per page:</span>
+                <div className="flex gap-1 rounded-lg border p-1">
+                  {[10, 20, 50].map((count) => (
+                    <Button
+                      key={count}
+                      variant={itemsPerPage === count ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-7 px-3"
+                      onClick={() => handleItemsPerPageChange(count)}
+                    >
+                      {count}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Page navigation */}
+              {totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+
+                  <div className="flex items-center gap-1">
+                    {/* Generate page numbers */}
+                    {(() => {
+                      const pages: (number | string)[] = [];
+                      const showPages = 5;
+
+                      if (totalPages <= showPages + 2) {
+                        // Show all pages if total is small
+                        for (let i = 1; i <= totalPages; i++) pages.push(i);
+                      } else {
+                        // Always show first page
+                        pages.push(1);
+
+                        // Calculate range around current page
+                        let start = Math.max(2, currentPage - 1);
+                        let end = Math.min(totalPages - 1, currentPage + 1);
+
+                        // Adjust if at edges
+                        if (currentPage <= 3) {
+                          end = Math.min(totalPages - 1, 4);
+                        } else if (currentPage >= totalPages - 2) {
+                          start = Math.max(2, totalPages - 3);
+                        }
+
+                        // Add ellipsis if needed
+                        if (start > 2) pages.push("...");
+
+                        // Add middle pages
+                        for (let i = start; i <= end; i++) pages.push(i);
+
+                        // Add ellipsis if needed
+                        if (end < totalPages - 1) pages.push("...");
+
+                        // Always show last page
+                        pages.push(totalPages);
+                      }
+
+                      return pages.map((page, i) =>
+                        typeof page === "string" ? (
+                          <span key={`ellipsis-${i}`} className="px-1 text-muted-foreground">
+                            {page}
+                          </span>
+                        ) : (
+                          <Button
+                            key={page}
+                            variant={currentPage === page ? "secondary" : "ghost"}
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => setCurrentPage(page)}
+                          >
+                            {page}
+                          </Button>
+                        )
+                      );
+                    })()}
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+            </div>
           )}
         </TabsContent>
 
@@ -656,6 +963,38 @@ export default function ProjectDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Danger Zone */}
+          <Card className="border-destructive/50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="h-5 w-5" />
+                Danger Zone
+              </CardTitle>
+              <CardDescription>
+                Destructive actions that cannot be undone.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                <div>
+                  <p className="font-medium">Empty Project</p>
+                  <p className="text-sm text-muted-foreground">
+                    Delete all {project.file_count || 0} files from this project. This cannot be undone.
+                  </p>
+                </div>
+                <Button
+                  variant="destructive"
+                  onClick={() => setEmptyProjectDialogOpen(true)}
+                  disabled={(project.file_count || 0) === 0 || emptyProjectMutation.isPending}
+                  className="shrink-0"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Empty Project
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
@@ -701,6 +1040,79 @@ export default function ProjectDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={bulkDeleteDialogOpen} onOpenChange={setBulkDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Selected Files</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedFiles.size} file{selectedFiles.size > 1 ? "s" : ""}? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => bulkDeleteMutation.mutate(Array.from(selectedFiles))}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkDeleteMutation.isPending ? "Deleting..." : `Delete ${selectedFiles.size} File${selectedFiles.size > 1 ? "s" : ""}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Empty Project Confirmation Dialog (Type to Confirm) */}
+      <Dialog
+        open={emptyProjectDialogOpen}
+        onOpenChange={(open) => {
+          setEmptyProjectDialogOpen(open);
+          if (!open) setEmptyProjectConfirmText("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Empty Project
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete all {project.file_count || 0} files from this project. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+              <p className="text-sm">
+                To confirm, type <span className="font-mono font-bold">{project.name}</span> below:
+              </p>
+            </div>
+            <Input
+              placeholder={`Type "${project.name}" to confirm`}
+              value={emptyProjectConfirmText}
+              onChange={(e) => setEmptyProjectConfirmText(e.target.value)}
+              className="font-mono"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setEmptyProjectDialogOpen(false);
+                setEmptyProjectConfirmText("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => emptyProjectMutation.mutate()}
+              disabled={emptyProjectConfirmText !== project.name || emptyProjectMutation.isPending}
+            >
+              {emptyProjectMutation.isPending ? "Deleting..." : "Delete All Files"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
