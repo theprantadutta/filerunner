@@ -27,11 +27,14 @@ use handlers::{
         change_password, ensure_admin_user, get_current_user, login, login_legacy, logout,
         logout_all, refresh_token, register, register_legacy,
     },
-    file::{bulk_delete_files, delete_file, delete_folder_files, download_file, list_project_files, upload_file},
+    file::{
+        bulk_delete_files, delete_file, delete_folder_files, download_file, list_project_files,
+        upload_file,
+    },
     folder::{create_folder, list_folders, update_folder_visibility},
     project::{
-        create_project, delete_project, empty_project, get_project, list_projects, regenerate_api_key,
-        update_project,
+        create_project, delete_project, empty_project, get_project, list_projects,
+        regenerate_api_key, update_project,
     },
 };
 use middleware::require_auth;

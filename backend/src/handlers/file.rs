@@ -532,7 +532,9 @@ pub async fn bulk_delete_files(
     .await?;
 
     if files.is_empty() {
-        return Err(AppError::NotFound("No files found or you don't have permission to delete them".to_string()));
+        return Err(AppError::NotFound(
+            "No files found or you don't have permission to delete them".to_string(),
+        ));
     }
 
     let mut deleted_count = 0;

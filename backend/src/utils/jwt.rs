@@ -9,7 +9,7 @@ use crate::error::{AppError, Result};
 /// Access token claims - short-lived, contains user info for authorization
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccessTokenClaims {
-    pub sub: String,        // User ID
+    pub sub: String, // User ID
     pub email: String,
     pub role: String,
     pub token_type: String, // "access"

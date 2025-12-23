@@ -1004,7 +1004,7 @@ export default function ProjectDetailPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete File</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{fileToDelete?.name}"? This action cannot be undone.
+              Are you sure you want to delete &quot;{fileToDelete?.name}&quot;? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
