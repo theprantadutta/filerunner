@@ -90,7 +90,7 @@ pub async fn register(
 
     // Hash password
     let password_hash = hash_password(&payload.password)
-        .map_err(|e| AppError::InternalError(format!("Failed to hash password: {}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Failed to hash password: {e}")))?;
 
     // Insert user (regular users don't need to change password)
     let user = sqlx::query_as::<_, User>(
@@ -149,7 +149,7 @@ pub async fn login(
 
     // Verify password
     let is_valid = verify_password(&payload.password, &user.password_hash)
-        .map_err(|e| AppError::InternalError(format!("Password verification failed: {}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Password verification failed: {e}")))?;
 
     if !is_valid {
         return Err(AppError::InvalidCredentials);
@@ -388,7 +388,7 @@ pub async fn change_password(
 
     // Verify current password
     let is_valid = verify_password(&payload.current_password, &user.password_hash)
-        .map_err(|e| AppError::InternalError(format!("Password verification failed: {}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Password verification failed: {e}")))?;
 
     if !is_valid {
         return Err(AppError::BadRequest(
@@ -398,7 +398,7 @@ pub async fn change_password(
 
     // Hash new password
     let new_password_hash = hash_password(&payload.new_password)
-        .map_err(|e| AppError::InternalError(format!("Failed to hash password: {}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Failed to hash password: {e}")))?;
 
     // Update password and clear must_change_password flag
     sqlx::query(
@@ -445,7 +445,7 @@ pub async fn ensure_admin_user(pool: &PgPool, email: &str, password: &str) -> Re
 
     // Create admin user with must_change_password = true
     let password_hash = hash_password(password)
-        .map_err(|e| AppError::InternalError(format!("Failed to hash password: {}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Failed to hash password: {e}")))?;
 
     sqlx::query(
         r#"
@@ -497,7 +497,7 @@ pub async fn login_legacy(
 
     // Verify password
     let is_valid = verify_password(&payload.password, &user.password_hash)
-        .map_err(|e| AppError::InternalError(format!("Password verification failed: {}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Password verification failed: {e}")))?;
 
     if !is_valid {
         return Err(AppError::InvalidCredentials);
@@ -533,7 +533,7 @@ pub async fn register_legacy(
 
     // Hash password
     let password_hash = hash_password(&payload.password)
-        .map_err(|e| AppError::InternalError(format!("Failed to hash password: {}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Failed to hash password: {e}")))?;
 
     // Insert user
     let user = sqlx::query_as::<_, User>(

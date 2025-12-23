@@ -7,6 +7,7 @@ use validator::Validate;
 use super::UserInfo;
 
 #[derive(Debug, Clone, FromRow)]
+#[allow(dead_code)]
 pub struct RefreshToken {
     pub id: Uuid,
     pub user_id: Uuid,

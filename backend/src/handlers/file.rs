@@ -47,7 +47,7 @@ pub async fn upload_file(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| AppError::BadRequest(format!("Multipart error: {}", e)))?
+        .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?
     {
         let name = field.name().unwrap_or("").to_string();
 
@@ -58,13 +58,13 @@ pub async fn upload_file(
                     field
                         .bytes()
                         .await
-                        .map_err(|e| AppError::BadRequest(format!("Failed to read file: {}", e)))?
+                        .map_err(|e| AppError::BadRequest(format!("Failed to read file: {e}")))?
                         .to_vec(),
                 );
             }
             "folder_path" => {
                 let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("Failed to read folder_path: {}", e))
+                    AppError::BadRequest(format!("Failed to read folder_path: {e}"))
                 })?;
                 if !text.is_empty() {
                     folder_path = Some(text);
@@ -147,7 +147,7 @@ pub async fn upload_file(
     let stored_name = if extension.is_empty() {
         file_id.to_string()
     } else {
-        format!("{}.{}", file_id, extension)
+        format!("{file_id}.{extension}")
     };
 
     // Build file path
@@ -163,18 +163,18 @@ pub async fn upload_file(
     // Create directory if it doesn't exist
     fs::create_dir_all(&storage_path)
         .await
-        .map_err(|e| AppError::FileError(format!("Failed to create directory: {}", e)))?;
+        .map_err(|e| AppError::FileError(format!("Failed to create directory: {e}")))?;
 
     storage_path.push(&stored_name);
 
     // Write file to disk
     let mut file = fs::File::create(&storage_path)
         .await
-        .map_err(|e| AppError::FileError(format!("Failed to create file: {}", e)))?;
+        .map_err(|e| AppError::FileError(format!("Failed to create file: {e}")))?;
 
     file.write_all(&file_data)
         .await
-        .map_err(|e| AppError::FileError(format!("Failed to write file: {}", e)))?;
+        .map_err(|e| AppError::FileError(format!("Failed to write file: {e}")))?;
 
     // Detect MIME type
     let mime_type = mime_guess::from_path(&file_name)
@@ -281,7 +281,7 @@ pub async fn download_file(
     let file_path = PathBuf::from(&file.file_path);
     let file_data = fs::read(&file_path)
         .await
-        .map_err(|e| AppError::FileError(format!("Failed to read file: {}", e)))?;
+        .map_err(|e| AppError::FileError(format!("Failed to read file: {e}")))?;
 
     // Build response with proper headers
     let response = Response::builder()
@@ -293,7 +293,7 @@ pub async fn download_file(
             format!("inline; filename=\"{}\"", file.original_name),
         )
         .body(Body::from(file_data))
-        .map_err(|e| AppError::InternalError(format!("Failed to build response: {}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Failed to build response: {e}")))?;
 
     Ok(response)
 }
@@ -364,7 +364,7 @@ pub async fn delete_file(
     if file_path.exists() {
         fs::remove_file(&file_path)
             .await
-            .map_err(|e| AppError::FileError(format!("Failed to delete file: {}", e)))?;
+            .map_err(|e| AppError::FileError(format!("Failed to delete file: {e}")))?;
     }
 
     // Delete from database

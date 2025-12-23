@@ -24,6 +24,7 @@ pub enum AppError {
     RefreshTokenExpired,
 
     #[error("Refresh token revoked")]
+    #[allow(dead_code)]
     RefreshTokenRevoked,
 
     #[error("Token reuse detected - all sessions revoked")]
