@@ -54,7 +54,7 @@ async fn create_token_pair(
     sqlx::query(
         r#"
         INSERT INTO refresh_tokens (id, user_id, token_hash, family_id, expires_at, user_agent, ip_address)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::inet)
         "#,
     )
     .bind(jti)
@@ -276,7 +276,7 @@ pub async fn refresh_token(
     sqlx::query(
         r#"
         INSERT INTO refresh_tokens (id, user_id, token_hash, family_id, expires_at, user_agent, ip_address)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::inet)
         "#,
     )
     .bind(new_jti)
