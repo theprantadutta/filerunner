@@ -1,9 +1,10 @@
 import axios, { AxiosInstance, AxiosError } from "axios";
-import { getApiUrl } from "./config";
+import { getApiUrl, getBaseUrl } from "./config";
 
 // Helper to get config object
 export const getConfig = () => ({
   apiUrl: getApiUrl(),
+  baseUrl: getBaseUrl(), // For file URLs that already include /api prefix
 });
 
 // Types

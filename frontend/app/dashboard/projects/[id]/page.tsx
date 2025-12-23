@@ -189,8 +189,8 @@ export default function ProjectDetailPage() {
   };
 
   const handleCopyUrl = (url: string) => {
-    const config = getConfig();
-    copyToClipboard(`${config.apiUrl}${url}`);
+    const { baseUrl } = getConfig();
+    copyToClipboard(`${baseUrl}${url}`);
     showToast.success("URL copied to clipboard");
   };
 
@@ -348,7 +348,7 @@ export default function ProjectDetailPage() {
                     {files.map((file, index) => {
                       const FileTypeIcon = getFileIcon(file.mime_type, file.original_name);
                       const isImage = file.mime_type.startsWith("image/");
-                      const config = getConfig();
+                      const { baseUrl } = getConfig();
 
                       return (
                         <div
@@ -359,7 +359,7 @@ export default function ProjectDetailPage() {
                           {isImage ? (
                             <div className="relative h-12 w-12 overflow-hidden rounded-lg bg-muted">
                               <img
-                                src={`${config.apiUrl}${file.download_url}`}
+                                src={`${baseUrl}${file.download_url}`}
                                 alt={file.original_name}
                                 className="h-full w-full object-cover"
                               />
@@ -393,7 +393,7 @@ export default function ProjectDetailPage() {
                               <Copy className="h-4 w-4" />
                             </Button>
                             <a
-                              href={`${config.apiUrl}${file.download_url}`}
+                              href={`${baseUrl}${file.download_url}`}
                               target="_blank"
                               rel="noopener noreferrer"
                             >
@@ -402,7 +402,7 @@ export default function ProjectDetailPage() {
                               </Button>
                             </a>
                             <a
-                              href={`${config.apiUrl}${file.download_url}?download=true`}
+                              href={`${baseUrl}${file.download_url}?download=true`}
                               download
                             >
                               <Button variant="ghost" size="icon" className="h-8 w-8" title="Download">
@@ -430,7 +430,7 @@ export default function ProjectDetailPage() {
                 {files.map((file, index) => {
                   const FileTypeIcon = getFileIcon(file.mime_type, file.original_name);
                   const isImage = file.mime_type.startsWith("image/");
-                  const config = getConfig();
+                  const { baseUrl } = getConfig();
 
                   return (
                     <Card
@@ -441,13 +441,13 @@ export default function ProjectDetailPage() {
                       {isImage ? (
                         <div className="relative aspect-video overflow-hidden bg-muted">
                           <img
-                            src={`${config.apiUrl}${file.download_url}`}
+                            src={`${baseUrl}${file.download_url}`}
                             alt={file.original_name}
                             className="h-full w-full object-cover transition-transform group-hover:scale-105"
                           />
                           <div className="absolute inset-0 bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 flex items-center justify-center gap-2">
                             <a
-                              href={`${config.apiUrl}${file.download_url}`}
+                              href={`${baseUrl}${file.download_url}`}
                               target="_blank"
                               rel="noopener noreferrer"
                             >
@@ -455,7 +455,7 @@ export default function ProjectDetailPage() {
                                 <Eye className="h-4 w-4" />
                               </Button>
                             </a>
-                            <a href={`${config.apiUrl}${file.download_url}?download=true`} download>
+                            <a href={`${baseUrl}${file.download_url}?download=true`} download>
                               <Button size="icon" variant="secondary" className="h-8 w-8">
                                 <Download className="h-4 w-4" />
                               </Button>
@@ -648,7 +648,7 @@ export default function ProjectDetailPage() {
             <CardContent>
               <div className="rounded-lg bg-muted p-4">
                 <pre className="text-sm overflow-x-auto">
-                  <code>{`curl -X POST "${getConfig().apiUrl}/api/files/upload" \\
+                  <code>{`curl -X POST "${getConfig().baseUrl}/api/upload" \\
   -H "X-API-Key: ${project.api_key}" \\
   -F "file=@/path/to/file.png" \\
   -F "folder_path=images"`}</code>

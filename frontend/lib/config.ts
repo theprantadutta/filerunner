@@ -32,6 +32,13 @@ export const getApiUrl = (): string => {
   return `${protocol}//${hostname}:${backendPort}/api`;
 };
 
+// Get base URL without /api suffix (for file URLs that already include /api)
+export const getBaseUrl = (): string => {
+  const apiUrl = getApiUrl();
+  // Remove trailing /api if present
+  return apiUrl.replace(/\/api\/?$/, "");
+};
+
 // Fetch config from server and cache it
 export const initConfig = async (): Promise<void> => {
   if (typeof window === "undefined" || cachedApiUrl) {
