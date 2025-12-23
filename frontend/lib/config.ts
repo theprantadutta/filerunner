@@ -22,13 +22,20 @@ export const getApiUrl = (): string => {
 
   // Fallback: auto-detect from current location
   const { protocol, hostname, port } = window.location;
-  let backendPort = "8000";
   const currentPort = port || (protocol === "https:" ? "443" : "80");
 
-  if (currentPort !== "3000" && currentPort !== "80" && currentPort !== "443") {
-    backendPort = String(Number(currentPort) - 1);
+  // For production (standard HTTP/HTTPS ports), assume API is on same origin or relative
+  // This works with reverse proxies like Traefik/nginx
+  if (currentPort === "80" || currentPort === "443") {
+    // In production, the /api/config endpoint should have provided the URL
+    // If we're here, something is wrong - log a warning
+    console.warn("Config endpoint failed, using relative /api path");
+    return "/api";
   }
 
+  // For development, use port - 1 convention (e.g., frontend on 3000, backend on 8000)
+  // Actually use 8000 as default backend port
+  const backendPort = currentPort === "3000" ? "8000" : String(Number(currentPort) - 1);
   return `${protocol}//${hostname}:${backendPort}/api`;
 };
 

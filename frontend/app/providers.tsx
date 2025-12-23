@@ -11,6 +11,7 @@ import { showToast } from "@/lib/toast";
 export function Providers({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const logout = useAuthStore((state) => state.logout);
+  const [configReady, setConfigReady] = useState(false);
 
   const [queryClient] = useState(
     () =>
@@ -24,9 +25,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       })
   );
 
-  // Initialize runtime config on mount
+  // Initialize runtime config on mount - wait for it to complete
   useEffect(() => {
-    initConfig();
+    initConfig().then(() => setConfigReady(true));
   }, []);
 
   // Set up the logout handler for API interceptor
@@ -37,6 +38,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
       router.push("/login");
     });
   }, [logout, router]);
+
+  // Don't render children until config is ready to prevent API calls with wrong URL
+  if (!configReady) {
+    return null;
+  }
 
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
