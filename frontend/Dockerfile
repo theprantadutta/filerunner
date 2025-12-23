@@ -16,7 +16,8 @@ COPY . .
 ARG NEXT_PUBLIC_BASE_PATH=""
 ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
 
-RUN npm run build
+# Clean any stale cache to prevent "Failed to find Server Action" errors
+RUN rm -rf .next && npm run build
 
 # Production image
 FROM node:24-alpine AS runner

@@ -23,7 +23,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use config::Config;
 use handlers::{
-    auth::{change_password, ensure_admin_user, get_current_user, login, register},
+    auth::{
+        change_password, ensure_admin_user, get_current_user, login, login_legacy, logout,
+        logout_all, refresh_token, register, register_legacy,
+    },
     file::{delete_file, delete_folder_files, download_file, list_project_files, upload_file},
     folder::{create_folder, list_folders, update_folder_visibility},
     project::{
@@ -120,10 +123,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish()
         .unwrap();
 
-    // Auth routes with rate limiting (public)
+    // Auth routes with rate limiting (public - no JWT required)
     let auth_routes = Router::new()
+        // New dual-token endpoints
         .route("/api/auth/register", post(register))
         .route("/api/auth/login", post(login))
+        .route("/api/auth/refresh", post(refresh_token))
+        // Legacy single-token endpoints (for backward compatibility)
+        .route("/api/auth/register-legacy", post(register_legacy))
+        .route("/api/auth/login-legacy", post(login_legacy))
         .layer(GovernorLayer {
             config: Arc::new(auth_rate_limit),
         });
@@ -141,6 +149,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Auth routes (protected)
         .route("/api/auth/me", get(get_current_user))
         .route("/api/auth/change-password", put(change_password))
+        .route("/api/auth/logout", post(logout))
+        .route("/api/auth/logout-all", post(logout_all))
         // Project routes (protected)
         .route("/api/projects", post(create_project))
         .route("/api/projects", get(list_projects))

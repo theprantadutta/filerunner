@@ -1,44 +1,9 @@
-import axios, { AxiosInstance } from "axios";
+import axios, { AxiosInstance, AxiosError } from "axios";
 import { getApiUrl } from "./config";
 
-// Lazy-initialized axios instance
-// This ensures getApiUrl() is called at request time, not module load time
-let _api: AxiosInstance | null = null;
-
-const getApi = (): AxiosInstance => {
-  if (!_api) {
-    const apiUrl = getApiUrl();
-    _api = axios.create({
-      baseURL: apiUrl,
-    });
-
-    // Add auth token to requests
-    _api.interceptors.request.use((config) => {
-      // Re-check API URL on each request in case config was updated
-      config.baseURL = getApiUrl();
-
-      if (typeof window !== "undefined") {
-        const token = localStorage.getItem("token");
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
-      }
-      return config;
-    });
-  }
-  return _api;
-};
-
-// Export a proxy that lazily initializes the api
-export const api = new Proxy({} as AxiosInstance, {
-  get(_, prop) {
-    const instance = getApi();
-    const value = instance[prop as keyof AxiosInstance];
-    if (typeof value === "function") {
-      return value.bind(instance);
-    }
-    return value;
-  },
+// Helper to get config object
+export const getConfig = () => ({
+  apiUrl: getApiUrl(),
 });
 
 // Types
@@ -50,6 +15,24 @@ export interface User {
   must_change_password: boolean;
 }
 
+// New dual-token auth response
+export interface TokenAuthResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+  user: User;
+}
+
+// Token refresh response
+export interface TokenRefreshResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+// Legacy auth response (for backward compatibility)
 export interface AuthResponse {
   token: string;
   user: User;
@@ -94,13 +77,159 @@ export interface FolderResponse extends Folder {
   total_size?: number;
 }
 
+// Token refresh state
+let isRefreshing = false;
+let refreshSubscribers: ((token: string) => void)[] = [];
+
+const subscribeTokenRefresh = (cb: (token: string) => void) => {
+  refreshSubscribers.push(cb);
+};
+
+const onRefreshed = (token: string) => {
+  refreshSubscribers.forEach((cb) => cb(token));
+  refreshSubscribers = [];
+};
+
+// Logout handler (set by the app)
+let logoutHandler: (() => void) | null = null;
+
+export const setLogoutHandler = (handler: () => void) => {
+  logoutHandler = handler;
+};
+
+// Lazy-initialized axios instance
+let _api: AxiosInstance | null = null;
+
+const getApi = (): AxiosInstance => {
+  if (!_api) {
+    const apiUrl = getApiUrl();
+    _api = axios.create({
+      baseURL: apiUrl,
+    });
+
+    // Request interceptor - add auth token
+    _api.interceptors.request.use((config) => {
+      // Re-check API URL on each request in case config was updated
+      config.baseURL = getApiUrl();
+
+      if (typeof window !== "undefined") {
+        const accessToken = localStorage.getItem("accessToken");
+        if (accessToken) {
+          config.headers.Authorization = `Bearer ${accessToken}`;
+        }
+      }
+      return config;
+    });
+
+    // Response interceptor - handle 401 errors and token refresh
+    _api.interceptors.response.use(
+      (response) => response,
+      async (error: AxiosError) => {
+        const originalRequest = error.config as typeof error.config & {
+          _retry?: boolean;
+        };
+
+        // If error is not 401 or request already retried, reject
+        if (error.response?.status !== 401 || originalRequest?._retry) {
+          return Promise.reject(error);
+        }
+
+        // Check if this is an auth endpoint (don't refresh for these)
+        const isAuthEndpoint =
+          originalRequest?.url?.includes("/auth/login") ||
+          originalRequest?.url?.includes("/auth/register") ||
+          originalRequest?.url?.includes("/auth/refresh");
+
+        if (isAuthEndpoint) {
+          return Promise.reject(error);
+        }
+
+        // Try to refresh the token
+        const refreshToken = localStorage.getItem("refreshToken");
+        if (!refreshToken) {
+          // No refresh token, logout
+          if (logoutHandler) {
+            logoutHandler();
+          }
+          return Promise.reject(error);
+        }
+
+        if (isRefreshing) {
+          // Wait for refresh to complete
+          return new Promise((resolve) => {
+            subscribeTokenRefresh((token: string) => {
+              if (originalRequest) {
+                originalRequest.headers.Authorization = `Bearer ${token}`;
+                resolve(axios(originalRequest));
+              }
+            });
+          });
+        }
+
+        originalRequest._retry = true;
+        isRefreshing = true;
+
+        try {
+          const response = await axios.post<TokenRefreshResponse>(
+            `${getApiUrl()}/auth/refresh`,
+            { refresh_token: refreshToken }
+          );
+
+          const { access_token, refresh_token } = response.data;
+
+          // Update stored tokens
+          localStorage.setItem("accessToken", access_token);
+          localStorage.setItem("refreshToken", refresh_token);
+
+          // Notify subscribers
+          onRefreshed(access_token);
+
+          // Retry original request
+          if (originalRequest) {
+            originalRequest.headers.Authorization = `Bearer ${access_token}`;
+            return axios(originalRequest);
+          }
+        } catch (refreshError) {
+          // Refresh failed, logout
+          if (logoutHandler) {
+            logoutHandler();
+          }
+          return Promise.reject(refreshError);
+        } finally {
+          isRefreshing = false;
+        }
+
+        return Promise.reject(error);
+      }
+    );
+  }
+  return _api;
+};
+
+// Export a proxy that lazily initializes the api
+export const api = new Proxy({} as AxiosInstance, {
+  get(_, prop) {
+    const instance = getApi();
+    const value = instance[prop as keyof AxiosInstance];
+    if (typeof value === "function") {
+      return value.bind(instance);
+    }
+    return value;
+  },
+});
+
 // Auth API
 export const authApi = {
   register: (email: string, password: string) =>
-    api.post<AuthResponse>("/auth/register", { email, password }),
+    api.post<TokenAuthResponse>("/auth/register", { email, password }),
 
   login: (email: string, password: string) =>
-    api.post<AuthResponse>("/auth/login", { email, password }),
+    api.post<TokenAuthResponse>("/auth/login", { email, password }),
+
+  refresh: (refreshToken: string) =>
+    api.post<TokenRefreshResponse>("/auth/refresh", {
+      refresh_token: refreshToken,
+    }),
 
   me: () => api.get<User>("/auth/me"),
 
@@ -109,6 +238,13 @@ export const authApi = {
       current_password: currentPassword,
       new_password: newPassword,
     }),
+
+  logout: (refreshToken?: string) =>
+    api.post<{ message: string }>("/auth/logout", {
+      refresh_token: refreshToken,
+    }),
+
+  logoutAll: () => api.post<{ message: string; revoked_count: number }>("/auth/logout-all"),
 };
 
 // Projects API

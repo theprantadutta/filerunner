@@ -15,6 +15,9 @@ pub struct Config {
     pub admin_password: String,
     pub db_min_connections: u32,
     pub db_max_connections: u32,
+    // Token expiry settings
+    pub access_token_expiry_minutes: i64,
+    pub refresh_token_expiry_days: i64,
 }
 
 impl Config {
@@ -52,6 +55,13 @@ impl Config {
                 .parse()?,
             db_max_connections: env::var("DB_MAX_CONNECTIONS")
                 .unwrap_or_else(|_| "10".to_string())
+                .parse()?,
+            // Token expiry settings (defaults: access=15min, refresh=7days)
+            access_token_expiry_minutes: env::var("ACCESS_TOKEN_EXPIRY_MINUTES")
+                .unwrap_or_else(|_| "15".to_string())
+                .parse()?,
+            refresh_token_expiry_days: env::var("REFRESH_TOKEN_EXPIRY_DAYS")
+                .unwrap_or_else(|_| "7".to_string())
                 .parse()?,
         };
 

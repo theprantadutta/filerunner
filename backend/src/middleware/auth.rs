@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::{
     error::{AppError, Result},
     models::UserRole,
-    utils::verify_token,
+    utils::{verify_access_token, verify_token},
     AppState,
 };
 
@@ -53,12 +53,21 @@ pub async fn require_auth(
         .strip_prefix("Bearer ")
         .ok_or(AppError::Unauthorized)?;
 
-    let claims = verify_token(token, &state.config.jwt_secret)?;
+    // Try to verify as access token first (new dual-token system)
+    let (user_id, email, role_str) =
+        if let Ok(claims) = verify_access_token(token, &state.config.jwt_secret) {
+            (claims.sub, claims.email, claims.role)
+        } else if let Ok(claims) = verify_token(token, &state.config.jwt_secret) {
+            // Fall back to legacy token verification for backward compatibility
+            (claims.sub, claims.email, claims.role)
+        } else {
+            return Err(AppError::Unauthorized);
+        };
 
-    let user_id = Uuid::parse_str(&claims.sub)
+    let user_id = Uuid::parse_str(&user_id)
         .map_err(|_| AppError::TokenError("Invalid user ID in token".to_string()))?;
 
-    let role = match claims.role.as_str() {
+    let role = match role_str.as_str() {
         "admin" => UserRole::Admin,
         "user" => UserRole::User,
         _ => return Err(AppError::TokenError("Invalid role in token".to_string())),
@@ -66,7 +75,7 @@ pub async fn require_auth(
 
     let auth_user = AuthUser {
         id: user_id,
-        email: claims.email,
+        email,
         role,
     };
 

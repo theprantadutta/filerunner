@@ -20,6 +20,15 @@ pub enum AppError {
     #[error("Token error: {0}")]
     TokenError(String),
 
+    #[error("Refresh token expired")]
+    RefreshTokenExpired,
+
+    #[error("Refresh token revoked")]
+    RefreshTokenRevoked,
+
+    #[error("Token reuse detected - all sessions revoked")]
+    TokenReuseDetected,
+
     #[error("Not found: {0}")]
     NotFound(String),
 
@@ -54,6 +63,18 @@ impl IntoResponse for AppError {
             AppError::TokenError(ref msg) => {
                 tracing::error!("Token error: {}", msg);
                 (StatusCode::UNAUTHORIZED, "Invalid token".to_string())
+            }
+            AppError::RefreshTokenExpired => {
+                tracing::warn!("Refresh token expired");
+                (StatusCode::UNAUTHORIZED, self.to_string())
+            }
+            AppError::RefreshTokenRevoked => {
+                tracing::warn!("Refresh token revoked");
+                (StatusCode::UNAUTHORIZED, self.to_string())
+            }
+            AppError::TokenReuseDetected => {
+                tracing::error!("SECURITY: Token reuse detected - possible attack");
+                (StatusCode::FORBIDDEN, self.to_string())
             }
             AppError::NotFound(ref msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::BadRequest(ref msg) => (StatusCode::BAD_REQUEST, msg.clone()),
