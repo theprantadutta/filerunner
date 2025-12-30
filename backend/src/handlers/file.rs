@@ -293,13 +293,20 @@ pub async fn download_file(
         .map_err(|e| AppError::FileError(format!("Failed to read file: {e}")))?;
 
     // Build response with proper headers
+    // Use "attachment" if download=true, otherwise "inline" for browser preview
+    let disposition = if query.download.unwrap_or(false) {
+        "attachment"
+    } else {
+        "inline"
+    };
+
     let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, file.mime_type)
         .header(header::CONTENT_LENGTH, file_data.len())
         .header(
             header::CONTENT_DISPOSITION,
-            format!("inline; filename=\"{}\"", file.original_name),
+            format!("{disposition}; filename=\"{}\"", file.original_name),
         )
         .body(Body::from(file_data))
         .map_err(|e| AppError::InternalError(format!("Failed to build response: {e}")))?;
