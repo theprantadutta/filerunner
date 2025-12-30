@@ -701,9 +701,16 @@ Authorization: Bearer <jwt_token>
 ---
 
 #### Delete File
+Supports both JWT and API key authentication:
 ```http
 DELETE /api/files/:file_id
 Authorization: Bearer <jwt_token>
+```
+
+Or with API key:
+```http
+DELETE /api/files/:file_id
+X-API-Key: <project_api_key>
 ```
 
 **Response (200 OK):**
@@ -713,12 +720,31 @@ Authorization: Bearer <jwt_token>
 }
 ```
 
+**Authentication:**
+- **JWT**: User must own the project containing the file
+- **API Key**: Must match the project's API key
+
 ---
 
 #### Bulk Delete Files
+Supports both JWT and API key authentication:
 ```http
 DELETE /api/files/bulk
 Authorization: Bearer <jwt_token>
+Content-Type: application/json
+
+{
+  "file_ids": [
+    "550e8400-e29b-41d4-a716-446655440000",
+    "660e8400-e29b-41d4-a716-446655440001"
+  ]
+}
+```
+
+Or with API key:
+```http
+DELETE /api/files/bulk
+X-API-Key: <project_api_key>
 Content-Type: application/json
 
 {
@@ -736,6 +762,10 @@ Content-Type: application/json
   "deleted_count": 2
 }
 ```
+
+**Authentication:**
+- **JWT**: User must own the projects containing the files (can span multiple projects)
+- **API Key**: All files must belong to the same project that the API key is for
 
 ---
 
@@ -915,13 +945,23 @@ curl -X GET "https://your-filerunner.com/api/files/FILE_ID?api_key=YOUR_PROJECT_
 curl -X GET https://your-filerunner.com/api/projects/PROJECT_ID/files \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 
-# Delete a file
+# Delete a file (with JWT)
 curl -X DELETE https://your-filerunner.com/api/files/FILE_ID \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 
-# Bulk delete files
+# Delete a file (with API key)
+curl -X DELETE https://your-filerunner.com/api/files/FILE_ID \
+  -H "X-API-Key: YOUR_PROJECT_API_KEY"
+
+# Bulk delete files (with JWT)
 curl -X DELETE https://your-filerunner.com/api/files/bulk \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"file_ids": ["FILE_ID_1", "FILE_ID_2"]}'
+
+# Bulk delete files (with API key - all files must be in same project)
+curl -X DELETE https://your-filerunner.com/api/files/bulk \
+  -H "X-API-Key: YOUR_PROJECT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"file_ids": ["FILE_ID_1", "FILE_ID_2"]}'
 ```
@@ -974,14 +1014,25 @@ response = requests.get(f"{BASE_URL}/api/projects/{project_id}/files",
 )
 files = response.json()
 
-# Delete a file
+# Delete a file (with JWT)
 response = requests.delete(f"{BASE_URL}/api/files/{file_id}",
     headers=headers
 )
 
-# Bulk delete files
+# Delete a file (with API key)
+response = requests.delete(f"{BASE_URL}/api/files/{file_id}",
+    headers={"X-API-Key": api_key}
+)
+
+# Bulk delete files (with JWT)
 response = requests.delete(f"{BASE_URL}/api/files/bulk",
     headers=headers,
+    json={"file_ids": ["file_id_1", "file_id_2"]}
+)
+
+# Bulk delete files (with API key)
+response = requests.delete(f"{BASE_URL}/api/files/bulk",
+    headers={"X-API-Key": api_key},
     json={"file_ids": ["file_id_1", "file_id_2"]}
 )
 ```
@@ -1046,8 +1097,8 @@ async function listFiles(jwtToken, projectId) {
   return response.json();
 }
 
-// Delete files
-async function deleteFiles(jwtToken, fileIds) {
+// Delete files (with JWT)
+async function deleteFilesWithJwt(jwtToken, fileIds) {
   const response = await fetch(`${BASE_URL}/api/files/bulk`, {
     method: "DELETE",
     headers: {
@@ -1055,6 +1106,28 @@ async function deleteFiles(jwtToken, fileIds) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ file_ids: fileIds })
+  });
+  return response.json();
+}
+
+// Delete files (with API key - all files must be in same project)
+async function deleteFilesWithApiKey(apiKey, fileIds) {
+  const response = await fetch(`${BASE_URL}/api/files/bulk`, {
+    method: "DELETE",
+    headers: {
+      "X-API-Key": apiKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ file_ids: fileIds })
+  });
+  return response.json();
+}
+
+// Delete single file (with API key)
+async function deleteFile(apiKey, fileId) {
+  const response = await fetch(`${BASE_URL}/api/files/${fileId}`, {
+    method: "DELETE",
+    headers: { "X-API-Key": apiKey }
   });
   return response.json();
 }
@@ -1133,9 +1206,10 @@ DOWNLOAD FILES:
 - For private files, add header X-API-Key or query param ?api_key=
 - Public project files don't need authentication
 
-DELETE FILES (need JWT token from login):
-- Single: DELETE /api/files/:file_id with Authorization: Bearer <token>
+DELETE FILES (supports both JWT token OR API key):
+- Single: DELETE /api/files/:file_id with X-API-Key header or Authorization: Bearer
 - Bulk: DELETE /api/files/bulk with body {"file_ids": ["id1", "id2"]}
+- Note: With API key, all files must belong to the same project
 
 I want to:
 1. Upload a file to folder "[FOLDER_PATH]"
@@ -1271,8 +1345,8 @@ Files:
 - POST /api/upload - Upload file (X-API-Key, multipart: file + folder_path)
 - GET /api/files/:id - Download file (X-API-Key for private)
 - GET /api/projects/:id/files - List files (Bearer)
-- DELETE /api/files/:id - Delete file (Bearer)
-- DELETE /api/files/bulk - Bulk delete (Bearer, body: file_ids array)
+- DELETE /api/files/:id - Delete file (Bearer OR X-API-Key)
+- DELETE /api/files/bulk - Bulk delete (Bearer OR X-API-Key, body: file_ids array)
 - POST /api/folders/delete - Delete folder (X-API-Key, body: folder_path)
 
 Folders (Bearer token):

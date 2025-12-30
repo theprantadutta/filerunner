@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{AppError, Result},
-    middleware::AuthUser,
+    middleware::{AuthUser, OptionalAuthUser},
     models::{File, FileMetadata, Folder, Project, UploadResponse},
     AppState,
 };
@@ -355,25 +355,53 @@ pub async fn list_project_files(
     Ok(Json(files))
 }
 
+/// Delete a single file - supports both JWT and API key authentication
+/// - JWT: User must own the project containing the file
+/// - API Key: Must match the project's API key
 pub async fn delete_file(
     State(state): State<AppState>,
-    auth_user: AuthUser,
+    optional_auth: OptionalAuthUser,
+    headers: HeaderMap,
     Path(file_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>> {
-    // Get file and check ownership
+    // Get file first
     let file = sqlx::query_as::<_, File>(
-        r#"
-        SELECT f.id, f.project_id, f.folder_id, f.original_name, f.stored_name, f.file_path, f.size, f.mime_type, f.upload_date
-        FROM files f
-        JOIN projects p ON f.project_id = p.id
-        WHERE f.id = $1 AND p.user_id = $2
-        "#,
+        "SELECT id, project_id, folder_id, original_name, stored_name, file_path, size, mime_type, upload_date FROM files WHERE id = $1"
     )
     .bind(file_id)
-    .bind(auth_user.id)
     .fetch_optional(&state.pool)
     .await?
     .ok_or(AppError::NotFound("File not found".to_string()))?;
+
+    // Get project
+    let project = sqlx::query_as::<_, Project>(
+        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1"
+    )
+    .bind(file.project_id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(AppError::NotFound("Project not found".to_string()))?;
+
+    // Check authorization - either JWT (user owns project) or API key
+    let authorized = if let Some(ref user) = optional_auth.0 {
+        // JWT auth - check user owns the project
+        project.user_id == user.id
+    } else {
+        // Try API key auth
+        if let Some(api_key) = headers.get("X-API-Key").and_then(|h| h.to_str().ok()) {
+            if let Ok(api_key_uuid) = Uuid::parse_str(api_key) {
+                api_key_uuid == project.api_key
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    };
+
+    if !authorized {
+        return Err(AppError::Unauthorized);
+    }
 
     // Delete file from disk
     let file_path = PathBuf::from(&file.file_path);
@@ -520,10 +548,13 @@ pub struct BulkDeleteRequest {
 }
 
 /// Bulk delete multiple files by their IDs
-/// Requires JWT authentication and ownership verification
+/// Supports both JWT and API key authentication:
+/// - JWT: User must own the projects containing the files
+/// - API Key: All files must belong to the same project, and API key must match
 pub async fn bulk_delete_files(
     State(state): State<AppState>,
-    auth_user: AuthUser,
+    optional_auth: OptionalAuthUser,
+    headers: HeaderMap,
     Json(payload): Json<BulkDeleteRequest>,
 ) -> Result<Json<serde_json::Value>> {
     if payload.file_ids.is_empty() {
@@ -533,21 +564,68 @@ pub async fn bulk_delete_files(
         })));
     }
 
-    // Get all files and verify ownership (user owns the projects they belong to)
-    let files = sqlx::query_as::<_, File>(
-        r#"
-        SELECT f.id, f.project_id, f.folder_id, f.original_name, f.stored_name, f.file_path, f.size, f.mime_type, f.upload_date
-        FROM files f
-        JOIN projects p ON f.project_id = p.id
-        WHERE f.id = ANY($1) AND p.user_id = $2
-        "#,
+    // Get all files first (without auth filter)
+    let all_files = sqlx::query_as::<_, File>(
+        "SELECT id, project_id, folder_id, original_name, stored_name, file_path, size, mime_type, upload_date FROM files WHERE id = ANY($1)"
     )
     .bind(&payload.file_ids)
-    .bind(auth_user.id)
     .fetch_all(&state.pool)
     .await?;
 
-    if files.is_empty() {
+    if all_files.is_empty() {
+        return Err(AppError::NotFound("No files found".to_string()));
+    }
+
+    // Determine which files the user is authorized to delete
+    let authorized_files: Vec<File> = if let Some(ref user) = optional_auth.0 {
+        // JWT auth - get files from projects owned by user
+        sqlx::query_as::<_, File>(
+            r#"
+            SELECT f.id, f.project_id, f.folder_id, f.original_name, f.stored_name, f.file_path, f.size, f.mime_type, f.upload_date
+            FROM files f
+            JOIN projects p ON f.project_id = p.id
+            WHERE f.id = ANY($1) AND p.user_id = $2
+            "#,
+        )
+        .bind(&payload.file_ids)
+        .bind(user.id)
+        .fetch_all(&state.pool)
+        .await?
+    } else {
+        // Try API key auth
+        let api_key = headers
+            .get("X-API-Key")
+            .and_then(|h| h.to_str().ok())
+            .ok_or(AppError::Unauthorized)?;
+
+        let api_key_uuid = Uuid::parse_str(api_key).map_err(|_| AppError::Unauthorized)?;
+
+        // Get project by API key
+        let project = sqlx::query_as::<_, Project>(
+            "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE api_key = $1"
+        )
+        .bind(api_key_uuid)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or(AppError::Unauthorized)?;
+
+        // For API key auth, all files must belong to this project
+        let files_in_project: Vec<File> = all_files
+            .into_iter()
+            .filter(|f| f.project_id == project.id)
+            .collect();
+
+        // Check if all requested files belong to this project
+        if files_in_project.len() != payload.file_ids.len() {
+            return Err(AppError::BadRequest(
+                "With API key auth, all files must belong to the same project".to_string(),
+            ));
+        }
+
+        files_in_project
+    };
+
+    if authorized_files.is_empty() {
         return Err(AppError::NotFound(
             "No files found or you don't have permission to delete them".to_string(),
         ));
@@ -556,7 +634,7 @@ pub async fn bulk_delete_files(
     let mut deleted_count = 0;
 
     // Delete each file from disk
-    for file in &files {
+    for file in &authorized_files {
         let file_path = PathBuf::from(&file.file_path);
         if file_path.exists() {
             if let Err(e) = fs::remove_file(&file_path).await {
@@ -567,7 +645,7 @@ pub async fn bulk_delete_files(
     }
 
     // Delete from database
-    let file_ids: Vec<Uuid> = files.iter().map(|f| f.id).collect();
+    let file_ids: Vec<Uuid> = authorized_files.iter().map(|f| f.id).collect();
     sqlx::query("DELETE FROM files WHERE id = ANY($1)")
         .bind(&file_ids)
         .execute(&state.pool)

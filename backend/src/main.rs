@@ -37,7 +37,7 @@ use handlers::{
         regenerate_api_key, update_project,
     },
 };
-use middleware::require_auth;
+use middleware::{optional_auth, require_auth};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -167,12 +167,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/folders", post(create_folder))
         .route("/api/folders", get(list_folders))
         .route("/api/folders/:id/visibility", put(update_folder_visibility))
-        // File routes (protected)
+        .layer(axum_middleware::from_fn_with_state(
+            app_state.clone(),
+            require_auth,
+        ));
+
+    // File delete routes (support both JWT and API key authentication)
+    let file_delete_routes = Router::new()
         .route("/api/files/bulk", delete(bulk_delete_files))
         .route("/api/files/:id", delete(delete_file))
         .layer(axum_middleware::from_fn_with_state(
             app_state.clone(),
-            require_auth,
+            optional_auth,
         ));
 
     // Build router
@@ -183,6 +189,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(auth_routes)
         // Merge rate-limited upload routes (API key based, no JWT auth)
         .merge(upload_routes)
+        // Merge file delete routes (support both JWT and API key)
+        .merge(file_delete_routes)
         // File download (API key based, no rate limit needed for downloads)
         .route("/api/files/:id", get(download_file))
         // Health check
