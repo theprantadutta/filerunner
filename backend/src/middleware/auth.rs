@@ -51,7 +51,9 @@ where
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self> {
-        Ok(OptionalAuthUser(parts.extensions.get::<AuthUser>().cloned()))
+        Ok(OptionalAuthUser(
+            parts.extensions.get::<AuthUser>().cloned(),
+        ))
     }
 }
 

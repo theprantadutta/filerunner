@@ -375,7 +375,7 @@ pub async fn delete_file(
 
     // Get project
     let project = sqlx::query_as::<_, Project>(
-        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1"
+        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1",
     )
     .bind(file.project_id)
     .fetch_optional(&state.pool)
