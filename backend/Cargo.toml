@@ -8,7 +8,7 @@ edition = "2021"
 axum = { version = "0.7", features = ["multipart", "macros"] }
 tokio = { version = "1.35", features = ["full"] }
 tower = { version = "0.4", features = ["util"] }
-tower-http = { version = "0.5", features = ["fs", "cors", "trace", "set-header"] }
+tower-http = { version = "0.5", features = ["fs", "cors", "trace", "set-header", "limit"] }
 
 # Database
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }

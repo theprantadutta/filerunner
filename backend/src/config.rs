@@ -42,7 +42,7 @@ impl Config {
             cors_origins,
             storage_path: env::var("STORAGE_PATH").unwrap_or_else(|_| "./storage".to_string()),
             max_file_size: env::var("MAX_FILE_SIZE")
-                .unwrap_or_else(|_| "104857600".to_string())
+                .unwrap_or_else(|_| "524288000".to_string()) // 500MB default
                 .parse()?,
             allow_signup: env::var("ALLOW_SIGNUP")
                 .unwrap_or_else(|_| "true".to_string())
