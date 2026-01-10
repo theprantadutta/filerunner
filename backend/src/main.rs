@@ -18,7 +18,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::CorsLayer;
+use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
+use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use config::Config;
@@ -140,9 +142,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
     // Upload routes with rate limiting (API key based)
+    // Allow up to 200MB for file uploads
     let upload_routes = Router::new()
         .route("/api/upload", post(upload_file))
         .route("/api/folders/delete", post(delete_folder_files))
+        .layer(RequestBodyLimitLayer::new(200 * 1024 * 1024)) // 200MB limit
         .layer(GovernorLayer {
             config: Arc::new(upload_rate_limit),
         });
@@ -195,6 +199,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/files/:id", get(download_file))
         // Health check
         .route("/health", get(|| async { "OK" }))
+        // Add request/response tracing
+        .layer(TraceLayer::new_for_http())
         .layer(cors)
         // Security headers
         .layer(SetResponseHeaderLayer::overriding(
