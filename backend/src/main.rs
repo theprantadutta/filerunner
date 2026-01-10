@@ -18,6 +18,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::CorsLayer;
+use axum::extract::DefaultBodyLimit;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
@@ -146,7 +147,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let upload_routes = Router::new()
         .route("/api/upload", post(upload_file))
         .route("/api/folders/delete", post(delete_folder_files))
-        .layer(RequestBodyLimitLayer::new(500 * 1024 * 1024)) // 500MB limit
+        .layer(DefaultBodyLimit::max(500 * 1024 * 1024)) // 500MB limit for Axum extractors
+        .layer(RequestBodyLimitLayer::new(500 * 1024 * 1024)) // 500MB limit for tower-http
         .layer(GovernorLayer {
             config: Arc::new(upload_rate_limit),
         });

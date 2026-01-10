@@ -22,6 +22,8 @@ pub async fn upload_file(
     headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>> {
+    tracing::info!("Upload request received");
+
     // Get API key from header
     let api_key = headers
         .get("X-API-Key")
@@ -54,13 +56,18 @@ pub async fn upload_file(
         match name.as_str() {
             "file" => {
                 file_name = field.file_name().map(|s| s.to_string());
+                tracing::info!("Reading file: {:?}", file_name);
                 file_data = Some(
                     field
                         .bytes()
                         .await
-                        .map_err(|e| AppError::BadRequest(format!("Failed to read file: {e}")))?
+                        .map_err(|e| {
+                            tracing::error!("Failed to read file bytes: {e}");
+                            AppError::BadRequest(format!("Failed to read file: {e}"))
+                        })?
                         .to_vec(),
                 );
+                tracing::info!("File read successfully, size: {} bytes", file_data.as_ref().map(|d| d.len()).unwrap_or(0));
             }
             "folder_path" => {
                 let text = field.text().await.map_err(|e| {
