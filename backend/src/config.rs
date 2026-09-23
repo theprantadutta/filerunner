@@ -22,7 +22,7 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
-        dotenv::dotenv().ok();
+        dotenvy::dotenv().ok();
 
         let cors_origins_str =
             env::var("CORS_ORIGINS").unwrap_or_else(|_| "http://localhost:3000".to_string());

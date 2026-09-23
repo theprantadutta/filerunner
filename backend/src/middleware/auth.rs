@@ -1,5 +1,4 @@
 use axum::{
-    async_trait,
     extract::{FromRequestParts, Request, State},
     http::{header::AUTHORIZATION, request::Parts},
     middleware::Next,
@@ -9,10 +8,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
+    AppState,
     error::{AppError, Result},
     models::UserRole,
     utils::{verify_access_token, verify_token},
-    AppState,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,7 +21,6 @@ pub struct AuthUser {
     pub role: UserRole,
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for AuthUser
 where
     S: Send + Sync,
@@ -43,7 +41,6 @@ where
 #[derive(Debug, Clone)]
 pub struct OptionalAuthUser(pub Option<AuthUser>);
 
-#[async_trait]
 impl<S> FromRequestParts<S> for OptionalAuthUser
 where
     S: Send + Sync,
@@ -115,8 +112,7 @@ pub async fn optional_auth(
         .headers()
         .get(AUTHORIZATION)
         .and_then(|h| h.to_str().ok())
-    {
-        if let Some(token) = auth_header.strip_prefix("Bearer ") {
+        && let Some(token) = auth_header.strip_prefix("Bearer ") {
             // Try to verify as access token first (new dual-token system)
             let auth_result =
                 if let Ok(claims) = verify_access_token(token, &state.config.jwt_secret) {
@@ -128,8 +124,8 @@ pub async fn optional_auth(
                     None
                 };
 
-            if let Some((user_id, email, role_str)) = auth_result {
-                if let Ok(user_id) = Uuid::parse_str(&user_id) {
+            if let Some((user_id, email, role_str)) = auth_result
+                && let Ok(user_id) = Uuid::parse_str(&user_id) {
                     let role = match role_str.as_str() {
                         "admin" => UserRole::Admin,
                         _ => UserRole::User,
@@ -143,9 +139,7 @@ pub async fn optional_auth(
 
                     request.extensions_mut().insert(auth_user);
                 }
-            }
         }
-    }
 
     // Always continue to next handler, regardless of auth result
     next.run(request).await

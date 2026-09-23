@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use std::path::PathBuf;
 use tokio::fs;
@@ -8,10 +8,10 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    AppState,
     error::{AppError, Result},
     middleware::AuthUser,
     models::{CreateProjectRequest, File, Project, ProjectResponse, UpdateProjectRequest},
-    AppState,
 };
 
 pub async fn create_project(
@@ -226,11 +226,10 @@ pub async fn empty_project(
     // Delete each file from disk
     for file in &files {
         let file_path = PathBuf::from(&file.file_path);
-        if file_path.exists() {
-            if let Err(e) = fs::remove_file(&file_path).await {
+        if file_path.exists()
+            && let Err(e) = fs::remove_file(&file_path).await {
                 tracing::warn!("Failed to delete file {}: {}", file_path.display(), e);
             }
-        }
         deleted_count += 1;
     }
 

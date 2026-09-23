@@ -1,10 +1,11 @@
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use chrono::{Duration, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    AppState,
     error::{AppError, Result},
     middleware::AuthUser,
     models::{
@@ -16,7 +17,6 @@ use crate::{
         create_access_token, create_refresh_token, create_token, hash_password, hash_token,
         verify_password, verify_refresh_token,
     },
-    AppState,
 };
 
 /// Helper to create tokens and store refresh token in DB

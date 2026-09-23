@@ -1,9 +1,9 @@
 use axum::{
+    Json,
     body::Body,
     extract::{Multipart, Path, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::Response,
-    Json,
 };
 use std::path::PathBuf;
 use tokio::fs;
@@ -11,10 +11,10 @@ use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 use crate::{
+    AppState,
     error::{AppError, Result},
     middleware::{AuthUser, OptionalAuthUser},
     models::{File, FileMetadata, Folder, Project, UploadResponse},
-    AppState,
 };
 
 pub async fn upload_file(
@@ -67,7 +67,10 @@ pub async fn upload_file(
                         })?
                         .to_vec(),
                 );
-                tracing::info!("File read successfully, size: {} bytes", file_data.as_ref().map(|d| d.len()).unwrap_or(0));
+                tracing::info!(
+                    "File read successfully, size: {} bytes",
+                    file_data.as_ref().map(|d| d.len()).unwrap_or(0)
+                );
             }
             "folder_path" => {
                 let text = field.text().await.map_err(|e| {
@@ -270,8 +273,8 @@ pub async fn download_file(
             .fetch_optional(&state.pool)
             .await?;
 
-            if let Some(folder) = folder {
-                if !folder.is_public {
+            if let Some(folder) = folder
+                && !folder.is_public {
                     // Require API key (from header or query param)
                     let api_key = get_api_key().ok_or(AppError::Unauthorized)?;
                     let api_key_uuid =
@@ -281,7 +284,6 @@ pub async fn download_file(
                         return Err(AppError::Unauthorized);
                     }
                 }
-            }
         } else {
             // No folder, check project API key (from header or query param)
             let api_key = get_api_key().ok_or(AppError::Unauthorized)?;
@@ -506,11 +508,10 @@ pub async fn delete_folder_files(
         // Delete each file from disk
         for file in &files {
             let file_path = PathBuf::from(&file.file_path);
-            if file_path.exists() {
-                if let Err(e) = fs::remove_file(&file_path).await {
+            if file_path.exists()
+                && let Err(e) = fs::remove_file(&file_path).await {
                     tracing::warn!("Failed to delete file {}: {}", file_path.display(), e);
                 }
-            }
             deleted_count += 1;
         }
 
@@ -532,15 +533,14 @@ pub async fn delete_folder_files(
         for segment in folder_path.split('/') {
             storage_path.push(segment);
         }
-        if storage_path.exists() {
-            if let Err(e) = fs::remove_dir_all(&storage_path).await {
+        if storage_path.exists()
+            && let Err(e) = fs::remove_dir_all(&storage_path).await {
                 tracing::warn!(
                     "Failed to remove folder directory {}: {}",
                     storage_path.display(),
                     e
                 );
             }
-        }
     }
 
     Ok(Json(serde_json::json!({
@@ -643,11 +643,10 @@ pub async fn bulk_delete_files(
     // Delete each file from disk
     for file in &authorized_files {
         let file_path = PathBuf::from(&file.file_path);
-        if file_path.exists() {
-            if let Err(e) = fs::remove_file(&file_path).await {
+        if file_path.exists()
+            && let Err(e) = fs::remove_file(&file_path).await {
                 tracing::warn!("Failed to delete file {}: {}", file_path.display(), e);
             }
-        }
         deleted_count += 1;
     }
 

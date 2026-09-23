@@ -1,31 +1,31 @@
 [package]
 name = "filerunner-backend"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.94"
 
 [dependencies]
 # Web framework
-axum = { version = "0.7", features = ["multipart", "macros"] }
-tokio = { version = "1.35", features = ["full"] }
-tower = { version = "0.4", features = ["util"] }
-tower-http = { version = "0.5", features = ["fs", "cors", "trace", "set-header", "limit"] }
+axum = { version = "0.8", features = ["multipart", "macros"] }
+tokio = { version = "1.53", features = ["full"] }
+tower-http = { version = "0.7", features = ["fs", "cors", "trace", "set-header", "limit"] }
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "migrate", "macros"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # Authentication & Security
-jsonwebtoken = "9.2"
-argon2 = "0.5"
-uuid = { version = "1.6", features = ["v4", "serde"] }
-sha2 = "0.10"
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
+argon2 = "0.6"
+uuid = { version = "1.26", features = ["v4", "serde"] }
+sha2 = "0.11"
 hex = "0.4"
 
 # Environment & Config
-dotenv = "0.15"
+dotenvy = "0.15"
 
 # Date/Time
 chrono = { version = "0.4", features = ["serde"] }
@@ -36,23 +36,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # File handling
 mime_guess = "2.0"
-tokio-util = { version = "0.7", features = ["io"] }
-bytes = "1.5"
 
 # Error handling
-thiserror = "1.0"
-anyhow = "1.0"
-
-# HTTP
-http = "1.0"
-http-body-util = "0.1"
+thiserror = "2.0"
 
 # Validation
-validator = { version = "0.18", features = ["derive"] }
+validator = { version = "0.21", features = ["derive"] }
 
 # Rate limiting
-governor = "0.6"
-tower_governor = "0.4"
+tower_governor = "0.8"
 
 [profile.release]
 opt-level = 3

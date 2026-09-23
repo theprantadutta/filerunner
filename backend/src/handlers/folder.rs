@@ -1,16 +1,16 @@
 use axum::{
-    extract::{Path, Query, State},
     Json,
+    extract::{Path, Query, State},
 };
 use serde::Deserialize;
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    AppState,
     error::{AppError, Result},
     middleware::AuthUser,
     models::{CreateFolderRequest, Folder, FolderResponse, Project, UpdateFolderVisibilityRequest},
-    AppState,
 };
 
 #[derive(Debug, Deserialize)]

@@ -6,19 +6,18 @@ mod middleware;
 mod models;
 mod utils;
 
+use axum::extract::DefaultBodyLimit;
 use axum::http::HeaderValue;
-use axum::http::{header, Method};
+use axum::http::{Method, header};
 use axum::{
-    middleware as axum_middleware,
+    Router, middleware as axum_middleware,
     routing::{delete, get, post, put},
-    Router,
 };
 use sqlx::PgPool;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::cors::CorsLayer;
-use axum::extract::DefaultBodyLimit;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
@@ -138,9 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Legacy single-token endpoints (for backward compatibility)
         .route("/api/auth/register-legacy", post(register_legacy))
         .route("/api/auth/login-legacy", post(login_legacy))
-        .layer(GovernorLayer {
-            config: Arc::new(auth_rate_limit),
-        });
+        .layer(GovernorLayer::new(auth_rate_limit));
 
     // Upload routes with rate limiting (API key based)
     // Allow up to 500MB for file uploads
@@ -149,9 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/folders/delete", post(delete_folder_files))
         .layer(DefaultBodyLimit::max(500 * 1024 * 1024)) // 500MB limit for Axum extractors
         .layer(RequestBodyLimitLayer::new(500 * 1024 * 1024)) // 500MB limit for tower-http
-        .layer(GovernorLayer {
-            config: Arc::new(upload_rate_limit),
-        });
+        .layer(GovernorLayer::new(upload_rate_limit));
 
     // Protected routes (require authentication)
     let protected_routes = Router::new()
@@ -163,16 +158,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Project routes (protected)
         .route("/api/projects", post(create_project))
         .route("/api/projects", get(list_projects))
-        .route("/api/projects/:id", get(get_project))
-        .route("/api/projects/:id", put(update_project))
-        .route("/api/projects/:id", delete(delete_project))
-        .route("/api/projects/:id/regenerate-key", post(regenerate_api_key))
-        .route("/api/projects/:id/files", get(list_project_files))
-        .route("/api/projects/:id/empty", delete(empty_project))
+        .route("/api/projects/{id}", get(get_project))
+        .route("/api/projects/{id}", put(update_project))
+        .route("/api/projects/{id}", delete(delete_project))
+        .route(
+            "/api/projects/{id}/regenerate-key",
+            post(regenerate_api_key),
+        )
+        .route("/api/projects/{id}/files", get(list_project_files))
+        .route("/api/projects/{id}/empty", delete(empty_project))
         // Folder routes (protected)
         .route("/api/folders", post(create_folder))
         .route("/api/folders", get(list_folders))
-        .route("/api/folders/:id/visibility", put(update_folder_visibility))
+        .route(
+            "/api/folders/{id}/visibility",
+            put(update_folder_visibility),
+        )
         .layer(axum_middleware::from_fn_with_state(
             app_state.clone(),
             require_auth,
@@ -181,7 +182,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // File delete routes (support both JWT and API key authentication)
     let file_delete_routes = Router::new()
         .route("/api/files/bulk", delete(bulk_delete_files))
-        .route("/api/files/:id", delete(delete_file))
+        .route("/api/files/{id}", delete(delete_file))
         .layer(axum_middleware::from_fn_with_state(
             app_state.clone(),
             optional_auth,
@@ -198,7 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Merge file delete routes (support both JWT and API key)
         .merge(file_delete_routes)
         // File download (API key based, no rate limit needed for downloads)
-        .route("/api/files/:id", get(download_file))
+        .route("/api/files/{id}", get(download_file))
         // Health check
         .route("/health", get(|| async { "OK" }))
         // Add request/response tracing
