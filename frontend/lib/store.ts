@@ -7,6 +7,7 @@ interface AuthState {
   user: User | null;
   setAuth: (accessToken: string, refreshToken: string, user: User) => void;
   updateUser: (user: User) => void;
+  setTokens: (accessToken: string, refreshToken: string) => void;
   clearMustChangePassword: () => void;
   logout: () => void;
   // Check if user has any auth (for dashboard access check)
@@ -30,6 +31,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       localStorage.setItem("user", JSON.stringify(user));
     }
     set({ accessToken, refreshToken, user });
+  },
+
+  setTokens: (accessToken, refreshToken) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("accessToken", accessToken);
+      localStorage.setItem("refreshToken", refreshToken);
+    }
+    set({ accessToken, refreshToken });
   },
 
   updateUser: (user) => {

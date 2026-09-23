@@ -54,46 +54,72 @@ where
     }
 }
 
+/// Routes a user may still call while their password must be changed
+const PASSWORD_CHANGE_ALLOWED: &[&str] = &[
+    "/api/auth/me",
+    "/api/auth/change-password",
+    "/api/auth/logout",
+    "/api/auth/logout-all",
+];
+
+/// Resolve a bearer token to its user ID (access tokens, plus legacy tokens for old clients)
+fn token_user_id(token: &str, secret: &str) -> Option<Uuid> {
+    let subject = if let Ok(claims) = verify_access_token(token, secret) {
+        claims.sub
+    } else if let Ok(claims) = verify_token(token, secret) {
+        claims.sub
+    } else {
+        return None;
+    };
+    Uuid::parse_str(&subject).ok()
+}
+
+fn bearer_token(request: &Request) -> Option<&str> {
+    request
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+}
+
+/// Look up the account behind a token. Role and the password-change flag come from the
+/// database, not the token, so changes (and deleted accounts) take effect immediately.
+async fn load_account(state: &AppState, user_id: Uuid) -> Result<Option<(AuthUser, bool)>> {
+    let row = sqlx::query_as::<_, (String, UserRole, bool)>(
+        "SELECT email, role, must_change_password FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    Ok(row.map(|(email, role, must_change_password)| {
+        (
+            AuthUser {
+                id: user_id,
+                email,
+                role,
+            },
+            must_change_password,
+        )
+    }))
+}
+
 pub async fn require_auth(
     State(state): State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response> {
-    let auth_header = request
-        .headers()
-        .get(AUTHORIZATION)
-        .and_then(|h| h.to_str().ok())
+    let token = bearer_token(&request).ok_or(AppError::Unauthorized)?;
+    let user_id = token_user_id(token, &state.config.jwt_secret).ok_or(AppError::Unauthorized)?;
+
+    let (auth_user, must_change_password) = load_account(&state, user_id)
+        .await?
         .ok_or(AppError::Unauthorized)?;
 
-    let token = auth_header
-        .strip_prefix("Bearer ")
-        .ok_or(AppError::Unauthorized)?;
-
-    // Try to verify as access token first (new dual-token system)
-    let (user_id, email, role_str) =
-        if let Ok(claims) = verify_access_token(token, &state.config.jwt_secret) {
-            (claims.sub, claims.email, claims.role)
-        } else if let Ok(claims) = verify_token(token, &state.config.jwt_secret) {
-            // Fall back to legacy token verification for backward compatibility
-            (claims.sub, claims.email, claims.role)
-        } else {
-            return Err(AppError::Unauthorized);
-        };
-
-    let user_id = Uuid::parse_str(&user_id)
-        .map_err(|_| AppError::TokenError("Invalid user ID in token".to_string()))?;
-
-    let role = match role_str.as_str() {
-        "admin" => UserRole::Admin,
-        "user" => UserRole::User,
-        _ => return Err(AppError::TokenError("Invalid role in token".to_string())),
-    };
-
-    let auth_user = AuthUser {
-        id: user_id,
-        email,
-        role,
-    };
+    // Accounts created with a temporary password can only change it until they do
+    if must_change_password && !PASSWORD_CHANGE_ALLOWED.contains(&request.uri().path()) {
+        return Err(AppError::PasswordChangeRequired);
+    }
 
     request.extensions_mut().insert(auth_user);
 
@@ -107,39 +133,13 @@ pub async fn optional_auth(
     mut request: Request,
     next: Next,
 ) -> Response {
-    // Try to get auth header
-    if let Some(auth_header) = request
-        .headers()
-        .get(AUTHORIZATION)
-        .and_then(|h| h.to_str().ok())
-        && let Some(token) = auth_header.strip_prefix("Bearer ")
+    if let Some(user_id) =
+        bearer_token(&request).and_then(|t| token_user_id(t, &state.config.jwt_secret))
+        && let Ok(Some((auth_user, must_change_password))) = load_account(&state, user_id).await
+        // A pending password change means the JWT grants nothing; API keys still work
+        && !must_change_password
     {
-        // Try to verify as access token first (new dual-token system)
-        let auth_result = if let Ok(claims) = verify_access_token(token, &state.config.jwt_secret) {
-            Some((claims.sub, claims.email, claims.role))
-        } else if let Ok(claims) = verify_token(token, &state.config.jwt_secret) {
-            // Fall back to legacy token verification for backward compatibility
-            Some((claims.sub, claims.email, claims.role))
-        } else {
-            None
-        };
-
-        if let Some((user_id, email, role_str)) = auth_result
-            && let Ok(user_id) = Uuid::parse_str(&user_id)
-        {
-            let role = match role_str.as_str() {
-                "admin" => UserRole::Admin,
-                _ => UserRole::User,
-            };
-
-            let auth_user = AuthUser {
-                id: user_id,
-                email,
-                role,
-            };
-
-            request.extensions_mut().insert(auth_user);
-        }
+        request.extensions_mut().insert(auth_user);
     }
 
     // Always continue to next handler, regardless of auth result

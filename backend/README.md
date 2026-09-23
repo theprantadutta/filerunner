@@ -68,9 +68,9 @@ cargo run
 | `CORS_ORIGINS` | Comma-separated CORS origins | http://localhost:3000 |
 | `STORAGE_PATH` | File storage path | ./storage |
 | `MAX_FILE_SIZE` | Maximum file size in bytes | 104857600 (100MB) |
-| `ALLOW_SIGNUP` | Allow user registration | true |
+| `ALLOW_SIGNUP` | Allow user registration | false |
 | `ADMIN_EMAIL` | Admin user email | admin@example.com |
-| `ADMIN_PASSWORD` | Admin user password | admin |
+| `ADMIN_PASSWORD` | First admin password; required on first start (12+ characters, not a default) | (none) |
 | `RUST_LOG` | Logging level | info |
 
 ## API Endpoints

@@ -40,15 +40,15 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-filerunner}:${POSTGRES_PASSWORD:-filerunner_password}@postgres:5432/${POSTGRES_DB:-filerunner}
-      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production-min-32-chars}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env to a random value of at least 32 characters (openssl rand -hex 32)}
       SERVER_PORT: ${SERVER_PORT:-8000}
       SERVER_HOST: ${SERVER_HOST:-0.0.0.0}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
       STORAGE_PATH: ${STORAGE_PATH:-/app/storage}
       MAX_FILE_SIZE: ${MAX_FILE_SIZE:-104857600}
-      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       DB_MIN_CONNECTIONS: ${DB_MIN_CONNECTIONS:-2}
       DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-10}
       RUST_LOG: ${RUST_LOG:-info,filerunner_backend=debug}

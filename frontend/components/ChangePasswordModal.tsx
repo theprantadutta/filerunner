@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,7 +34,8 @@ export function ChangePasswordModal({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const { clearMustChangePassword } = useAuthStore();
+  const { clearMustChangePassword, setTokens } = useAuthStore();
+  const queryClient = useQueryClient();
 
   const reset = () => {
     setCurrentPassword("");
@@ -71,8 +73,12 @@ export function ChangePasswordModal({
     setIsLoading(true);
 
     try {
-      await authApi.changePassword(currentPassword, newPassword);
+      const response = await authApi.changePassword(currentPassword, newPassword);
+      // The server revokes every session on a password change and returns a fresh one
+      setTokens(response.data.access_token, response.data.refresh_token);
       clearMustChangePassword();
+      // Requests blocked while the change was pending can now load
+      queryClient.invalidateQueries();
       reset();
       showToast.success("Password changed");
       onOpenChange?.(false);

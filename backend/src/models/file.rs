@@ -27,6 +27,10 @@ pub struct FileMetadata {
     pub mime_type: String,
     pub upload_date: DateTime<Utc>,
     pub download_url: String,
+    /// Signed, expiring URL for files in private projects (see `create_download_token`)
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_url: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

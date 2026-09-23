@@ -28,7 +28,7 @@ pub async fn create_folder(
         .map_err(|e| AppError::ValidationError(e.to_string()))?;
 
     // Check if project belongs to user
-    let project = sqlx::query_as::<_, Project>(
+    let _project = sqlx::query_as::<_, Project>(
         "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2"
     )
     .bind(payload.project_id)
@@ -37,7 +37,8 @@ pub async fn create_folder(
     .await?
     .ok_or(AppError::NotFound("Project not found".to_string()))?;
 
-    let is_public = payload.is_public.unwrap_or(project.is_public);
+    // Private unless requested: public projects already share everything
+    let is_public = payload.is_public.unwrap_or(false);
 
     let folder = sqlx::query_as::<_, Folder>(
         r#"

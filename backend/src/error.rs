@@ -47,6 +47,9 @@ pub enum AppError {
 
     #[error("Signup is disabled")]
     SignupDisabled,
+
+    #[error("Password change required")]
+    PasswordChangeRequired,
 }
 
 impl IntoResponse for AppError {
@@ -92,6 +95,7 @@ impl IntoResponse for AppError {
             }
             AppError::ValidationError(ref msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::SignupDisabled => (StatusCode::FORBIDDEN, self.to_string()),
+            AppError::PasswordChangeRequired => (StatusCode::FORBIDDEN, self.to_string()),
         };
 
         let body = Json(json!({

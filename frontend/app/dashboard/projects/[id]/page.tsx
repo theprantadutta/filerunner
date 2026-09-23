@@ -83,21 +83,16 @@ import {
 import { formatBytes, formatDate, copyToClipboard, cn } from "@/lib/utils";
 import Link from "next/link";
 
-// Helper to build file URL with API key for private projects
-function getFileUrl(baseUrl: string, downloadUrl: string, isPublic: boolean, apiKey: string, download?: boolean): string {
-  const url = `${baseUrl}${downloadUrl}`;
-  // For private projects, append API key as query param for image/file previews
-  if (!isPublic) {
-    const params = new URLSearchParams();
-    params.set("api_key", apiKey);
-    if (download) params.set("download", "true");
-    return `${url}?${params.toString()}`;
-  }
-  if (download) {
-    return `${url}?download=true`;
-  }
-  return url;
+// Build a browser URL for a file. Private files use the server's signed, expiring link
+// (access_url) so the project API key never appears in URLs, history, or server logs.
+function getFileUrl(baseUrl: string, file: FileMetadata, download?: boolean): string {
+  const url = new URL(`${baseUrl}${file.access_url ?? file.download_url}`, window.location.origin);
+  if (download) url.searchParams.set("download", "true");
+  return url.toString();
 }
+
+// Signed links last two hours; refresh the list well before they expire
+const SIGNED_LINK_REFRESH_MS = 45 * 60 * 1000;
 
 // File type icon mapper
 function getFileIcon(mimeType: string, fileName: string) {
@@ -216,6 +211,7 @@ export default function ProjectDetailPage() {
       const response = await projectsApi.listFiles(projectId);
       return response.data;
     },
+    refetchInterval: SIGNED_LINK_REFRESH_MS,
   });
 
   // Keep the dashboard totals and sidebar in sync after changes here
@@ -480,8 +476,7 @@ export default function ProjectDetailPage() {
   }
 
   const { baseUrl } = getConfig();
-  const fileUrl = (file: FileMetadata, download?: boolean) =>
-    getFileUrl(baseUrl, file.download_url, project.is_public, project.api_key, download);
+  const fileUrl = (file: FileMetadata, download?: boolean) => getFileUrl(baseUrl, file, download);
   const buildCurl = (key: string) => `curl -X POST "${baseUrl}/api/upload" \\
   -H "X-API-Key: ${key}" \\
   -F "file=@/path/to/file.png" \\

@@ -50,7 +50,10 @@ export default function RegisterPage() {
       showToast.success("Account created");
       router.push("/dashboard");
     } catch (err: any) {
-      const message = err.response?.data?.error || "Registration failed";
+      const message =
+        err.response?.status === 403
+          ? "Sign-up is turned off on this server. Ask the administrator for an account."
+          : err.response?.data?.error || "Registration failed";
       showToast.error(message);
     } finally {
       setLoading(false);

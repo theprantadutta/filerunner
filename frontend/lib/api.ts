@@ -63,6 +63,8 @@ export interface FileMetadata {
   mime_type: string;
   upload_date: string;
   download_url: string;
+  /** Signed, expiring link for files in private projects; opens this one file only */
+  access_url?: string;
 }
 
 export interface Folder {
@@ -235,7 +237,7 @@ export const authApi = {
   me: () => api.get<User>("/auth/me"),
 
   changePassword: (currentPassword: string, newPassword: string) =>
-    api.put<{ message: string }>("/auth/change-password", {
+    api.put<{ message: string } & TokenRefreshResponse>("/auth/change-password", {
       current_password: currentPassword,
       new_password: newPassword,
     }),
@@ -299,11 +301,6 @@ export const filesApi = {
     api.delete<{ message: string; deleted_count: number }>("/files/bulk", {
       data: { file_ids: fileIds },
     }),
-
-  getDownloadUrl: (id: string, apiKey?: string) => {
-    const url = `${getApiUrl()}/files/${id}`;
-    return apiKey ? `${url}?api_key=${apiKey}` : url;
-  },
 };
 
 // Folders API

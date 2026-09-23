@@ -6,6 +6,7 @@ use validator::Validate;
 
 use crate::{
     AppState,
+    config::validate_admin_password,
     error::{AppError, Result},
     middleware::AuthUser,
     models::{
@@ -425,8 +426,20 @@ pub async fn change_password(
     .execute(&state.pool)
     .await?;
 
+    // Issue a new session for this client; all earlier sessions were revoked above
+    let user = User {
+        must_change_password: false,
+        ..user
+    };
+    let (access_token, refresh_token, expires_in) =
+        create_token_pair(&state.pool, &user, &state.config, None, None).await?;
+
     Ok(Json(ChangePasswordResponse {
         message: "Password changed successfully".to_string(),
+        access_token,
+        refresh_token,
+        token_type: "Bearer".to_string(),
+        expires_in,
     }))
 }
 
@@ -441,6 +454,14 @@ pub async fn ensure_admin_user(pool: &PgPool, email: &str, password: &str) -> Re
     if admin_exists {
         tracing::info!("Admin user already exists");
         return Ok(());
+    }
+
+    // Never create the first admin with a missing or guessable password
+    if let Err(reason) = validate_admin_password(password) {
+        tracing::error!("Cannot create the admin account: {reason}");
+        return Err(AppError::InternalError(format!(
+            "Cannot create the admin account: {reason}"
+        )));
     }
 
     // Create admin user with must_change_password = true

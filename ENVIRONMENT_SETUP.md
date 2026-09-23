@@ -125,7 +125,7 @@ STORAGE_PATH=/app/storage             # File storage location
 MAX_FILE_SIZE=104857600               # 100MB in bytes
 
 # Features
-ALLOW_SIGNUP=true                     # Allow user registration
+ALLOW_SIGNUP=false                    # Allow user registration (off by default)
 
 # Admin User
 ADMIN_EMAIL=admin@example.com
@@ -154,7 +154,7 @@ SERVER_HOST=0.0.0.0
 CORS_ORIGINS=http://localhost:3000,http://localhost:8000
 STORAGE_PATH=./storage
 MAX_FILE_SIZE=104857600
-ALLOW_SIGNUP=true
+ALLOW_SIGNUP=false
 ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=your_admin_password
 RUST_LOG=info,filerunner_backend=debug

@@ -83,4 +83,9 @@ pub struct ChangePasswordRequest {
 #[derive(Debug, Serialize)]
 pub struct ChangePasswordResponse {
     pub message: String,
+    // Changing the password revokes every session, so the caller gets a fresh one
+    pub access_token: String,
+    pub refresh_token: String,
+    pub token_type: String,
+    pub expires_in: i64,
 }

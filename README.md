@@ -46,10 +46,10 @@ services:
     image: theprantadutta/filerunner-backend:latest
     environment:
       DATABASE_URL: postgresql://filerunner:your_secure_password_here@postgres:5432/filerunner
-      JWT_SECRET: your-super-secret-jwt-key-min-32-characters
+      JWT_SECRET: ${JWT_SECRET}  # required: openssl rand -hex 32
       CORS_ORIGINS: http://localhost
       ADMIN_EMAIL: admin@example.com
-      ADMIN_PASSWORD: admin123
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}  # required on first start: 12+ characters
     ports:
       - "8000:8000"
     volumes:
@@ -80,10 +80,10 @@ services:
     image: theprantadutta/filerunner-backend:latest
     environment:
       DATABASE_URL: postgresql://user:password@your-db-host:5432/filerunner
-      JWT_SECRET: your-super-secret-jwt-key-min-32-characters
+      JWT_SECRET: ${JWT_SECRET}  # required: openssl rand -hex 32
       CORS_ORIGINS: http://localhost
       ADMIN_EMAIL: admin@example.com
-      ADMIN_PASSWORD: admin123
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}  # required on first start: 12+ characters
     ports:
       - "8000:8000"
     volumes:
@@ -1385,8 +1385,8 @@ openssl rand -base64 32
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `POSTGRES_PASSWORD` | Database password | `secure_password_here` |
-| `JWT_SECRET` | Token signing key (32+ chars) | `openssl rand -base64 32` |
-| `ADMIN_PASSWORD` | Initial admin password | `change_on_first_login` |
+| `JWT_SECRET` | Token signing key. Required: 32+ random characters; the server refuses example values | `openssl rand -hex 32` |
+| `ADMIN_PASSWORD` | Initial admin password. Required on first start: 12+ characters, not a default value | (your own) |
 
 ### File Storage Variables
 

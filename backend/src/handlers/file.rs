@@ -15,6 +15,7 @@ use crate::{
     error::{AppError, Result},
     middleware::{AuthUser, OptionalAuthUser},
     models::{File, FileMetadata, Folder, Project, UploadResponse},
+    utils::{create_download_token, verify_download_token},
 };
 
 pub async fn upload_file(
@@ -138,7 +139,8 @@ pub async fn upload_file(
         )
         .bind(project.id)
         .bind(path)
-        .bind(project.is_public)
+        // Folders are private unless made public explicitly; the project setting covers the rest
+        .bind(false)
         .fetch_one(&state.pool)
         .await?;
 
@@ -225,7 +227,46 @@ pub async fn upload_file(
 #[derive(serde::Deserialize)]
 pub struct DownloadQuery {
     pub api_key: Option<String>,
+    /// Signed, expiring token for this one file (issued to the project owner)
+    pub token: Option<String>,
     pub download: Option<bool>,
+}
+
+/// How long signed download links stay valid
+const DOWNLOAD_LINK_TTL_SECONDS: i64 = 2 * 60 * 60;
+
+/// Served with types that browsers can execute script in (HTML, XHTML, SVG, XML). The sandbox
+/// renders them as inert documents so an uploaded page can't act as this site.
+const ACTIVE_CONTENT_CSP: &str = "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'";
+
+fn is_active_content(mime_type: &str) -> bool {
+    let mime = mime_type.to_ascii_lowercase();
+    mime.contains("html") || mime.contains("xml") || mime.contains("svg")
+}
+
+/// RFC 6266 Content-Disposition: an ASCII fallback plus the exact UTF-8 name in `filename*`
+fn content_disposition(disposition: &str, file_name: &str) -> String {
+    let fallback: String = file_name
+        .chars()
+        .map(|c| {
+            if (c.is_ascii_graphic() && c != '"' && c != '\\') || c == ' ' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let encoded: String = file_name
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"!#$&+-.^_`|~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect();
+    format!("{disposition}; filename=\"{fallback}\"; filename*=UTF-8''{encoded}")
 }
 
 pub async fn download_file(
@@ -252,47 +293,33 @@ pub async fn download_file(
     .await?
     .ok_or(AppError::NotFound("Project not found".to_string()))?;
 
-    // Helper to get API key from header or query param
-    let get_api_key = || -> Option<&str> {
-        // First try header
-        if let Some(key) = headers.get("X-API-Key").and_then(|h| h.to_str().ok()) {
-            return Some(key);
-        }
-        // Then try query param
-        query.api_key.as_deref()
-    };
+    // Access is denied unless one of these grants it
+    let has_valid_token = query
+        .token
+        .as_deref()
+        .is_some_and(|t| verify_download_token(t, &state.config.jwt_secret, file.id));
+    let has_api_key = headers
+        .get("X-API-Key")
+        .and_then(|h| h.to_str().ok())
+        .or(query.api_key.as_deref())
+        .and_then(|key| Uuid::parse_str(key).ok())
+        .is_some_and(|key| key == project.api_key);
 
-    // Check access permissions
-    if !project.is_public {
-        // If folder exists, check folder visibility
-        if let Some(folder_id) = file.folder_id {
-            let folder = sqlx::query_as::<_, Folder>(
-                "SELECT id, project_id, path, is_public, created_at FROM folders WHERE id = $1",
-            )
+    let authorized = if project.is_public || has_valid_token || has_api_key {
+        true
+    } else if let Some(folder_id) = file.folder_id {
+        // A folder made public explicitly shares its files from a private project
+        sqlx::query_scalar::<_, bool>("SELECT is_public FROM folders WHERE id = $1")
             .bind(folder_id)
             .fetch_optional(&state.pool)
-            .await?;
+            .await?
+            .unwrap_or(false)
+    } else {
+        false
+    };
 
-            if let Some(folder) = folder
-                && !folder.is_public
-            {
-                // Require API key (from header or query param)
-                let api_key = get_api_key().ok_or(AppError::Unauthorized)?;
-                let api_key_uuid = Uuid::parse_str(api_key).map_err(|_| AppError::Unauthorized)?;
-
-                if api_key_uuid != project.api_key {
-                    return Err(AppError::Unauthorized);
-                }
-            }
-        } else {
-            // No folder, check project API key (from header or query param)
-            let api_key = get_api_key().ok_or(AppError::Unauthorized)?;
-            let api_key_uuid = Uuid::parse_str(api_key).map_err(|_| AppError::Unauthorized)?;
-
-            if api_key_uuid != project.api_key {
-                return Err(AppError::Unauthorized);
-            }
-        }
+    if !authorized {
+        return Err(AppError::Unauthorized);
     }
 
     // Read file from disk
@@ -309,18 +336,21 @@ pub async fn download_file(
         "inline"
     };
 
-    let response = Response::builder()
+    let mut response = Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, file.mime_type)
+        .header(header::CONTENT_TYPE, &file.mime_type)
         .header(header::CONTENT_LENGTH, file_data.len())
         .header(
             header::CONTENT_DISPOSITION,
-            format!("{disposition}; filename=\"{}\"", file.original_name),
-        )
-        .body(Body::from(file_data))
-        .map_err(|e| AppError::InternalError(format!("Failed to build response: {e}")))?;
+            content_disposition(disposition, &file.original_name),
+        );
+    if is_active_content(&file.mime_type) {
+        response = response.header(header::CONTENT_SECURITY_POLICY, ACTIVE_CONTENT_CSP);
+    }
 
-    Ok(response)
+    response
+        .body(Body::from(file_data))
+        .map_err(|e| AppError::InternalError(format!("Failed to build response: {e}")))
 }
 
 pub async fn list_project_files(
@@ -329,7 +359,7 @@ pub async fn list_project_files(
     Path(project_id): Path<Uuid>,
 ) -> Result<Json<Vec<FileMetadata>>> {
     // Check if project belongs to user
-    let _project = sqlx::query_as::<_, Project>(
+    let project = sqlx::query_as::<_, Project>(
         "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2"
     )
     .bind(project_id)
@@ -360,6 +390,24 @@ pub async fn list_project_files(
     .bind(project_id)
     .fetch_all(&state.pool)
     .await?;
+
+    // Private files get a short-lived signed link so the dashboard never puts the API key in URLs
+    let files = if project.is_public {
+        files
+    } else {
+        files
+            .into_iter()
+            .map(|mut file| {
+                let token = create_download_token(
+                    file.id,
+                    &state.config.jwt_secret,
+                    DOWNLOAD_LINK_TTL_SECONDS,
+                )?;
+                file.access_url = Some(format!("{}?token={token}", file.download_url));
+                Ok(file)
+            })
+            .collect::<Result<Vec<_>>>()?
+    };
 
     Ok(Json(files))
 }
@@ -664,4 +712,47 @@ pub async fn bulk_delete_files(
         "message": "Files deleted successfully",
         "deleted_count": deleted_count
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn content_disposition_ascii_name() {
+        assert_eq!(
+            content_disposition("inline", "report.pdf"),
+            "inline; filename=\"report.pdf\"; filename*=UTF-8''report.pdf"
+        );
+    }
+
+    #[test]
+    fn content_disposition_unicode_and_quotes() {
+        let header = content_disposition("attachment", "résumé \"final\".pdf");
+        assert!(header.starts_with("attachment; filename=\"r_sum_ _final_.pdf\";"));
+        assert!(header.ends_with("filename*=UTF-8''r%C3%A9sum%C3%A9%20%22final%22.pdf"));
+        // Header values must be plain visible ASCII
+        assert!(header.bytes().all(|b| (0x20..0x7f).contains(&b)));
+    }
+
+    #[test]
+    fn content_disposition_strips_control_characters() {
+        let header = content_disposition("inline", "a\r\nb.txt");
+        assert!(!header.contains('\r') && !header.contains('\n'));
+    }
+
+    #[test]
+    fn active_content_detection() {
+        for mime in [
+            "text/html",
+            "application/xhtml+xml",
+            "image/svg+xml",
+            "text/xml",
+        ] {
+            assert!(is_active_content(mime), "{mime}");
+        }
+        for mime in ["image/png", "application/pdf", "video/mp4", "text/plain"] {
+            assert!(!is_active_content(mime), "{mime}");
+        }
+    }
 }
