@@ -227,9 +227,10 @@ pub async fn empty_project(
     for file in &files {
         let file_path = PathBuf::from(&file.file_path);
         if file_path.exists()
-            && let Err(e) = fs::remove_file(&file_path).await {
-                tracing::warn!("Failed to delete file {}: {}", file_path.display(), e);
-            }
+            && let Err(e) = fs::remove_file(&file_path).await
+        {
+            tracing::warn!("Failed to delete file {}: {}", file_path.display(), e);
+        }
         deleted_count += 1;
     }
 

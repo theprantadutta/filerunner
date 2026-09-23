@@ -112,34 +112,35 @@ pub async fn optional_auth(
         .headers()
         .get(AUTHORIZATION)
         .and_then(|h| h.to_str().ok())
-        && let Some(token) = auth_header.strip_prefix("Bearer ") {
-            // Try to verify as access token first (new dual-token system)
-            let auth_result =
-                if let Ok(claims) = verify_access_token(token, &state.config.jwt_secret) {
-                    Some((claims.sub, claims.email, claims.role))
-                } else if let Ok(claims) = verify_token(token, &state.config.jwt_secret) {
-                    // Fall back to legacy token verification for backward compatibility
-                    Some((claims.sub, claims.email, claims.role))
-                } else {
-                    None
-                };
+        && let Some(token) = auth_header.strip_prefix("Bearer ")
+    {
+        // Try to verify as access token first (new dual-token system)
+        let auth_result = if let Ok(claims) = verify_access_token(token, &state.config.jwt_secret) {
+            Some((claims.sub, claims.email, claims.role))
+        } else if let Ok(claims) = verify_token(token, &state.config.jwt_secret) {
+            // Fall back to legacy token verification for backward compatibility
+            Some((claims.sub, claims.email, claims.role))
+        } else {
+            None
+        };
 
-            if let Some((user_id, email, role_str)) = auth_result
-                && let Ok(user_id) = Uuid::parse_str(&user_id) {
-                    let role = match role_str.as_str() {
-                        "admin" => UserRole::Admin,
-                        _ => UserRole::User,
-                    };
+        if let Some((user_id, email, role_str)) = auth_result
+            && let Ok(user_id) = Uuid::parse_str(&user_id)
+        {
+            let role = match role_str.as_str() {
+                "admin" => UserRole::Admin,
+                _ => UserRole::User,
+            };
 
-                    let auth_user = AuthUser {
-                        id: user_id,
-                        email,
-                        role,
-                    };
+            let auth_user = AuthUser {
+                id: user_id,
+                email,
+                role,
+            };
 
-                    request.extensions_mut().insert(auth_user);
-                }
+            request.extensions_mut().insert(auth_user);
         }
+    }
 
     // Always continue to next handler, regardless of auth result
     next.run(request).await

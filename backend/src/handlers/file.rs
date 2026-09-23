@@ -274,16 +274,16 @@ pub async fn download_file(
             .await?;
 
             if let Some(folder) = folder
-                && !folder.is_public {
-                    // Require API key (from header or query param)
-                    let api_key = get_api_key().ok_or(AppError::Unauthorized)?;
-                    let api_key_uuid =
-                        Uuid::parse_str(api_key).map_err(|_| AppError::Unauthorized)?;
+                && !folder.is_public
+            {
+                // Require API key (from header or query param)
+                let api_key = get_api_key().ok_or(AppError::Unauthorized)?;
+                let api_key_uuid = Uuid::parse_str(api_key).map_err(|_| AppError::Unauthorized)?;
 
-                    if api_key_uuid != project.api_key {
-                        return Err(AppError::Unauthorized);
-                    }
+                if api_key_uuid != project.api_key {
+                    return Err(AppError::Unauthorized);
                 }
+            }
         } else {
             // No folder, check project API key (from header or query param)
             let api_key = get_api_key().ok_or(AppError::Unauthorized)?;
@@ -509,9 +509,10 @@ pub async fn delete_folder_files(
         for file in &files {
             let file_path = PathBuf::from(&file.file_path);
             if file_path.exists()
-                && let Err(e) = fs::remove_file(&file_path).await {
-                    tracing::warn!("Failed to delete file {}: {}", file_path.display(), e);
-                }
+                && let Err(e) = fs::remove_file(&file_path).await
+            {
+                tracing::warn!("Failed to delete file {}: {}", file_path.display(), e);
+            }
             deleted_count += 1;
         }
 
@@ -534,13 +535,14 @@ pub async fn delete_folder_files(
             storage_path.push(segment);
         }
         if storage_path.exists()
-            && let Err(e) = fs::remove_dir_all(&storage_path).await {
-                tracing::warn!(
-                    "Failed to remove folder directory {}: {}",
-                    storage_path.display(),
-                    e
-                );
-            }
+            && let Err(e) = fs::remove_dir_all(&storage_path).await
+        {
+            tracing::warn!(
+                "Failed to remove folder directory {}: {}",
+                storage_path.display(),
+                e
+            );
+        }
     }
 
     Ok(Json(serde_json::json!({
@@ -644,9 +646,10 @@ pub async fn bulk_delete_files(
     for file in &authorized_files {
         let file_path = PathBuf::from(&file.file_path);
         if file_path.exists()
-            && let Err(e) = fs::remove_file(&file_path).await {
-                tracing::warn!("Failed to delete file {}: {}", file_path.display(), e);
-            }
+            && let Err(e) = fs::remove_file(&file_path).await
+        {
+            tracing::warn!("Failed to delete file {}: {}", file_path.display(), e);
+        }
         deleted_count += 1;
     }
 
