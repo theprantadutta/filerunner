@@ -71,10 +71,12 @@ export function DashboardShell({
   return (
     <div className="min-h-screen bg-background lg:grid lg:grid-cols-[256px_minmax(0,1fr)]">
       {/* Show forced password change modal if required */}
+      {/* Separate keys: without them React reuses one dialog and its content visibly
+          switches from the forced to the voluntary variant while closing */}
       {user?.must_change_password ? (
-        <ChangePasswordModal isForced />
+        <ChangePasswordModal key="forced" isForced />
       ) : (
-        <ChangePasswordModal open={passwordOpen} onOpenChange={setPasswordOpen} />
+        <ChangePasswordModal key="voluntary" open={passwordOpen} onOpenChange={setPasswordOpen} />
       )}
 
       <aside className="sticky top-0 hidden h-screen border-r bg-card lg:block">
