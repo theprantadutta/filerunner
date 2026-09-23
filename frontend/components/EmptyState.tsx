@@ -6,6 +6,7 @@ interface EmptyStateProps {
   title: string;
   description: string;
   action?: React.ReactNode;
+  tone?: "neutral" | "error";
   className?: string;
 }
 
@@ -14,23 +15,35 @@ export function EmptyState({
   title,
   description,
   action,
+  tone = "neutral",
   className,
 }: EmptyStateProps) {
   return (
     <div
+      role={tone === "error" ? "alert" : undefined}
       className={cn(
-        "flex flex-col items-center justify-center py-12 text-center",
+        "flex flex-col items-center justify-center px-6 py-14 text-center",
         className
       )}
     >
-      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-muted">
-        <Icon className="h-10 w-10 text-muted-foreground" />
+      <div
+        className={cn(
+          "flex h-11 w-11 items-center justify-center rounded-lg border bg-card shadow-panel",
+          tone === "error" && "border-destructive/25 bg-destructive/5"
+        )}
+      >
+        <Icon
+          className={cn(
+            "h-5 w-5",
+            tone === "error" ? "text-destructive" : "text-muted-foreground"
+          )}
+        />
       </div>
-      <h3 className="mt-4 text-lg font-semibold">{title}</h3>
-      <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+      <h3 className="mt-4 text-[15px] font-semibold">{title}</h3>
+      <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">
         {description}
       </p>
-      {action && <div className="mt-6">{action}</div>}
+      {action && <div className="mt-5 flex gap-2">{action}</div>}
     </div>
   );
 }

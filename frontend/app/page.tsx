@@ -3,7 +3,8 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store";
-import { FolderOpen } from "lucide-react";
+import { Logo } from "@/components/Logo";
+import { Loader2 } from "lucide-react";
 
 export default function Home() {
   const router = useRouter();
@@ -19,16 +20,9 @@ export default function Home() {
   }, [accessToken, refreshToken, router]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary/5 via-background to-accent/5">
-      <div className="text-center animate-fade-up">
-        <div className="flex items-center justify-center gap-3 mb-4">
-          <FolderOpen className="h-12 w-12 text-primary animate-pulse" />
-        </div>
-        <h1 className="text-4xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-          FileRunner
-        </h1>
-        <p className="mt-2 text-muted-foreground">Loading...</p>
-      </div>
+    <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-background">
+      <Logo />
+      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Loading" />
     </div>
   );
 }

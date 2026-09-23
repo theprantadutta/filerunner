@@ -1,11 +1,21 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "sonner";
 
-const inter = Inter({ subsets: ["latin"] });
+const sans = Instrument_Sans({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "FileRunner - File Management & CDN Platform",
@@ -18,8 +28,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${sans.variable} ${mono.variable}`}
+    >
+      <body className="font-sans">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -28,13 +42,19 @@ export default function RootLayout({
         >
           <Providers>{children}</Providers>
           <Toaster
-            position="top-right"
+            position="bottom-right"
             expand={false}
-            richColors
             closeButton
             toastOptions={{
               duration: 4000,
-              className: "font-sans",
+              classNames: {
+                toast:
+                  "!font-sans !rounded-lg !border !border-border !bg-popover !text-popover-foreground !shadow-float",
+                description: "!text-muted-foreground",
+                success: "[&_[data-icon]]:!text-success",
+                error: "[&_[data-icon]]:!text-destructive",
+                warning: "[&_[data-icon]]:!text-warning",
+              },
             }}
           />
         </ThemeProvider>

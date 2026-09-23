@@ -4,98 +4,93 @@
 
 @layer base {
   :root {
-    /* Background colors */
-    --background: 0 0% 100%;
-    --background-subtle: 240 5% 96%;
-    --foreground: 240 10% 3.9%;
+    /* Canvas sits behind panels; card is the panel surface */
+    --background: 220 17% 97%;
+    --foreground: 225 14% 10%;
 
-    /* Card and popover */
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 225 14% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
+    --popover-foreground: 225 14% 10%;
 
-    /* Primary - Indigo */
-    --primary: 243 75% 59%;
+    /* Primary - petrol */
+    --primary: 185 81% 29%;
     --primary-foreground: 0 0% 100%;
 
-    /* Secondary */
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
+    --secondary: 220 14% 95%;
+    --secondary-foreground: 225 14% 10%;
 
-    /* Accent - Violet */
-    --accent: 262 83% 58%;
-    --accent-foreground: 0 0% 100%;
+    /* Accent - neutral hover/selected surface */
+    --accent: 220 14% 94%;
+    --accent-foreground: 225 14% 10%;
 
-    /* Muted elements */
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
+    --muted: 220 14% 95%;
+    --muted-foreground: 220 9% 43%;
 
-    /* Success - Green */
-    --success: 142 76% 36%;
+    --success: 152 62% 30%;
     --success-foreground: 0 0% 100%;
 
-    /* Warning - Amber */
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 0%;
+    --warning: 32 92% 40%;
+    --warning-foreground: 0 0% 100%;
 
-    /* Destructive - Red */
-    --destructive: 0 84% 60%;
+    --destructive: 0 70% 48%;
     --destructive-foreground: 0 0% 100%;
 
-    /* Borders and inputs */
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 243 75% 59%;
+    --border: 220 13% 90%;
+    --input: 220 13% 86%;
+    --ring: 185 81% 29%;
 
-    /* Radius - slightly more rounded */
-    --radius: 0.75rem;
+    /* Storage composition series (categorical, fixed order) */
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --series-5: #e87ba4;
+    --series-other: #a3a8b2;
+
+    --radius: 0.625rem;
   }
 
   .dark {
-    /* Background colors */
-    --background: 240 10% 3.9%;
-    --background-subtle: 240 6% 10%;
-    --foreground: 0 0% 98%;
+    --background: 220 16% 6%;
+    --foreground: 220 14% 93%;
 
-    /* Card and popover */
-    --card: 240 6% 10%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 6% 10%;
-    --popover-foreground: 0 0% 98%;
+    --card: 216 14% 9%;
+    --card-foreground: 220 14% 93%;
+    --popover: 216 14% 10%;
+    --popover-foreground: 220 14% 93%;
 
-    /* Primary - Brighter indigo for dark mode */
-    --primary: 243 75% 65%;
-    --primary-foreground: 240 10% 3.9%;
+    --primary: 184 58% 50%;
+    --primary-foreground: 220 16% 6%;
 
-    /* Secondary */
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: 216 12% 14%;
+    --secondary-foreground: 220 14% 93%;
 
-    /* Accent - Brighter violet */
-    --accent: 262 83% 68%;
-    --accent-foreground: 0 0% 98%;
+    --accent: 216 12% 15%;
+    --accent-foreground: 220 14% 93%;
 
-    /* Muted elements */
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
+    --muted: 216 12% 13%;
+    --muted-foreground: 218 9% 62%;
 
-    /* Success */
-    --success: 142 76% 46%;
-    --success-foreground: 0 0% 100%;
+    --success: 152 52% 48%;
+    --success-foreground: 220 16% 6%;
 
-    /* Warning */
-    --warning: 38 92% 60%;
-    --warning-foreground: 0 0% 0%;
+    --warning: 38 88% 56%;
+    --warning-foreground: 220 16% 6%;
 
-    /* Destructive */
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 0 72% 60%;
+    --destructive-foreground: 220 16% 6%;
 
-    /* Borders and inputs */
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 243 75% 65%;
+    --border: 216 11% 17%;
+    --input: 216 11% 22%;
+    --ring: 184 58% 50%;
+
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-other: #5b616b;
   }
 }
 
@@ -104,46 +99,41 @@
     @apply border-border;
   }
 
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    font-feature-settings: "cv11", "ss01", "calt" 1;
   }
 
-  /* Smooth scrolling */
-  html {
-    scroll-behavior: smooth;
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
   }
 
-  /* Selection styling */
   ::selection {
     @apply bg-primary/20 text-foreground;
   }
 
-  /* Focus visible styling for accessibility */
   :focus-visible {
     @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
-}
 
-/* Custom utility classes */
-@layer utilities {
-  /* Gradient text */
-  .text-gradient {
-    @apply bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent;
+  /* Numbers in tables and stats line up */
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 
-  /* Glass morphism effect */
-  .glass {
-    @apply bg-background/80 backdrop-blur-lg;
-  }
-
-  /* Subtle shadow */
-  .shadow-soft {
-    box-shadow: 0 2px 8px -2px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.06);
-  }
-
-  /* Card hover effect */
-  .card-hover {
-    @apply transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5;
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }

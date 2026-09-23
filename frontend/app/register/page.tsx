@@ -9,14 +9,10 @@ import { showToast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { FolderOpen, Eye, EyeOff, Check, X } from "lucide-react";
+import { AuthShell } from "@/components/AuthShell";
+import { PasswordInput } from "@/components/PasswordInput";
+import { Check, Circle, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -51,7 +47,7 @@ export default function RegisterPage() {
       const response = await authApi.register(email, password);
       const { access_token, refresh_token, user } = response.data;
       setAuth(access_token, refresh_token, user);
-      showToast.success("Account created successfully!");
+      showToast.success("Account created");
       router.push("/dashboard");
     } catch (err: any) {
       const message = err.response?.data?.error || "Registration failed";
@@ -62,143 +58,87 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex min-h-screen">
-      {/* Left side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary via-primary/90 to-accent items-center justify-center p-12">
-        <div className="max-w-md text-white animate-fade-up">
-          <div className="flex items-center gap-3 mb-8">
-            <FolderOpen className="h-12 w-12" />
-            <span className="text-4xl font-bold">FileRunner</span>
-          </div>
-          <h1 className="text-3xl font-semibold mb-4">
-            Start managing your files today
-          </h1>
-          <p className="text-white/80 text-lg mb-8">
-            Create your free account and get started with secure,
-            project-based file management.
-          </p>
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-white/80" />
-              <span className="text-white/90">Create unlimited projects</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-white/80" />
-              <span className="text-white/90">Unique API keys per project</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-white/80" />
-              <span className="text-white/90">Organize with folders</span>
-            </div>
-          </div>
+    <AuthShell
+      title="Create your account"
+      description="Set up an account to start creating projects and uploading files."
+      footer={
+        <>
+          Already have an account?{" "}
+          <Link href="/login" className="font-medium text-foreground underline-offset-4 hover:underline">
+            Sign in
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            type="email"
+            autoComplete="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoFocus
+            className="h-10"
+          />
         </div>
-      </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="password">Password</Label>
+          <PasswordInput
+            id="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            visible={showPassword}
+            onVisibleChange={setShowPassword}
+            required
+            aria-describedby="password-requirements"
+            className="h-10"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="confirm-password">Confirm password</Label>
+          <Input
+            id="confirm-password"
+            type={showPassword ? "text" : "password"}
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+            className="h-10"
+          />
+        </div>
 
-      {/* Right side - Register form */}
-      <div className="flex w-full lg:w-1/2 items-center justify-center bg-background p-8">
-        <Card className="w-full max-w-md border-0 shadow-none lg:border lg:shadow-sm animate-fade-up">
-          <CardHeader className="space-y-1 text-center lg:text-left">
-            <div className="flex items-center gap-2 justify-center lg:hidden mb-4">
-              <FolderOpen className="h-8 w-8 text-primary" />
-              <span className="text-2xl font-bold">FileRunner</span>
-            </div>
-            <CardTitle className="text-2xl font-bold">Create an account</CardTitle>
-            <CardDescription>
-              Enter your details to get started
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="h-11"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="h-11 pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirm-password">Confirm Password</Label>
-                <Input
-                  id="confirm-password"
-                  type={showPassword ? "text" : "password"}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  className="h-11"
-                />
-              </div>
-
-              {/* Password requirements */}
-              {password.length > 0 && (
-                <div className="space-y-2 p-3 bg-muted/50 rounded-lg">
-                  {passwordRequirements.map((req, i) => (
-                    <div key={i} className="flex items-center gap-2 text-sm">
-                      {req.met ? (
-                        <Check className="h-4 w-4 text-success" />
-                      ) : (
-                        <X className="h-4 w-4 text-muted-foreground" />
-                      )}
-                      <span
-                        className={
-                          req.met ? "text-success" : "text-muted-foreground"
-                        }
-                      >
-                        {req.text}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+        {/* Password requirements */}
+        <ul id="password-requirements" className="space-y-1.5 pt-1">
+          {passwordRequirements.map((req) => (
+            <li
+              key={req.text}
+              className={cn(
+                "flex items-center gap-2 text-[13px] transition-colors",
+                req.met ? "text-foreground" : "text-muted-foreground"
               )}
+            >
+              {req.met ? (
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-success text-success-foreground">
+                  <Check className="h-2.5 w-2.5" strokeWidth={3.5} />
+                </span>
+              ) : (
+                <Circle className="h-4 w-4 text-border" />
+              )}
+              {req.text}
+            </li>
+          ))}
+        </ul>
 
-              <Button
-                type="submit"
-                className="w-full h-11 font-semibold"
-                disabled={loading}
-              >
-                {loading ? "Creating account..." : "Create account"}
-              </Button>
-            </form>
-            <div className="mt-6 text-center text-sm">
-              Already have an account?{" "}
-              <Link
-                href="/login"
-                className="text-primary font-medium hover:underline"
-              >
-                Sign in
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+        <Button type="submit" size="lg" className="w-full" disabled={loading}>
+          {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+          {loading ? "Creating account" : "Create account"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

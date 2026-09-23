@@ -7,6 +7,7 @@ import { initConfig } from "@/lib/config";
 import { setLogoutHandler } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { showToast } from "@/lib/toast";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -45,6 +46,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
+    </QueryClientProvider>
   );
 }
