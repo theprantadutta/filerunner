@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
@@ -18,8 +18,23 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FileRunner - File Management & CDN Platform",
+  title: {
+    default: "FileRunner",
+    template: "%s – FileRunner",
+  },
   description: "Self-hostable file management and CDN platform",
+  applicationName: "FileRunner",
+  appleWebApp: {
+    title: "FileRunner",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#F5F6F8" },
+    { media: "(prefers-color-scheme: dark)", color: "#0D0F12" },
+  ],
 };
 
 export default function RootLayout({

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDropzone } from "react-dropzone";
@@ -403,6 +403,17 @@ export default function ProjectDetailPage() {
     setSelectMode(false);
     setSelectedFiles(new Set());
   };
+
+  // Name the browser tab after the project (metadata can't be exported from a client page)
+  const projectName = project?.name;
+  useEffect(() => {
+    if (!projectName) return;
+    const previous = document.title;
+    document.title = `${projectName} – FileRunner`;
+    return () => {
+      document.title = previous;
+    };
+  }, [projectName]);
 
   if (projectLoading) {
     return (
