@@ -30,7 +30,7 @@ services:
       - filerunner-network
 
   backend:
-    image: theprantadutta/filerunner-backend:latest
+    image: theprantadutta/filerunner-backend:${FILERUNNER_VERSION:-latest}
     # To build locally instead, comment out 'image' and uncomment below:
     # build:
     #   context: ./backend
@@ -69,7 +69,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: theprantadutta/filerunner-frontend:latest
+    image: theprantadutta/filerunner-frontend:${FILERUNNER_VERSION:-latest}
     # To build locally instead, comment out 'image' and uncomment below:
     # build:
     #   context: ./frontend

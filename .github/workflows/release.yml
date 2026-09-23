@@ -7,9 +7,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release'
+        description: 'Existing git tag to (re)build and publish, e.g. v1.4.0'
         required: true
-        default: 'v0.1.0'
+
+# The version being released: the pushed tag, or the tag chosen for a manual run
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build-and-push-backend:
@@ -17,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        ref: ${{ env.RELEASE_TAG }}
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -31,11 +36,16 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
+        # Read the checked-out release commit, not the commit the workflow was triggered from
+        context: git
         images: theprantadutta/filerunner-backend
+        # latest for easy deploys, plus exact tags for pinning: 1.4.0, 1.4, and sha-<commit>.
+        # Manual rebuilds of an older tag refresh its pinned tags but never move latest back.
         tags: |
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=raw,value=latest
+          type=semver,pattern={{version}},value=${{ env.RELEASE_TAG }}
+          type=semver,pattern={{major}}.{{minor}},value=${{ env.RELEASE_TAG }}
+          type=sha
+          type=raw,value=latest,enable=${{ github.event_name == 'push' }}
 
     - name: Build and push backend
       uses: docker/build-push-action@v5
@@ -52,6 +62,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        ref: ${{ env.RELEASE_TAG }}
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -66,11 +78,16 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
+        # Read the checked-out release commit, not the commit the workflow was triggered from
+        context: git
         images: theprantadutta/filerunner-frontend
+        # latest for easy deploys, plus exact tags for pinning: 1.4.0, 1.4, and sha-<commit>.
+        # Manual rebuilds of an older tag refresh its pinned tags but never move latest back.
         tags: |
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=raw,value=latest
+          type=semver,pattern={{version}},value=${{ env.RELEASE_TAG }}
+          type=semver,pattern={{major}}.{{minor}},value=${{ env.RELEASE_TAG }}
+          type=sha
+          type=raw,value=latest,enable=${{ github.event_name == 'push' }}
 
     - name: Build and push frontend
       uses: docker/build-push-action@v5
