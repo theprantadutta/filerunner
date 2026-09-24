@@ -51,15 +51,17 @@ export default function AccountPage() {
     <Page>
       <PageHeader title="Account" description="Your sign-in details and how FileRunner looks on this device." />
 
-      <div className="mt-8 flex items-center gap-4 rounded-3xl bg-rail p-5 text-rail-ink sm:p-6">
+      <div className="mt-8 flex items-center gap-4 rounded-3xl border border-line bg-surface p-5 sm:p-6">
         <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-c1 to-c7 font-display text-2xl font-bold text-white">
           {initial}
         </span>
         <div className="min-w-0">
-          <p className="truncate font-display text-xl font-bold text-white">{user?.email}</p>
-          <p className="mt-0.5 text-sm capitalize text-rail-muted">
-            {user?.role}
-            {user?.created_at ? `, member since ${formatDate(user.created_at)}` : ""}
+          <p className="truncate font-display text-xl font-bold text-ink">{user?.email}</p>
+          <p className="mt-0.5 text-sm text-ink-3">
+            {user?.role === "admin" ? "Admin" : "Member"}
+            {user?.created_at
+              ? `${user.role === "admin" ? ", joined" : " since"} ${formatDate(user.created_at)}`
+              : ""}
           </p>
         </div>
       </div>
