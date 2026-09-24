@@ -1,22 +1,24 @@
 # FileRunner
 
-A production-ready, self-hostable file management and CDN platform built with Rust and Next.js.
+A self-hosted file manager and CDN, built with Rust and Next.js. Upload files from your apps with a project API key, organize them into projects and folders, and serve them publicly or keep them private.
 
 ## Features
 
-- **Secure Authentication** - JWT-based auth with dual-token system (access + refresh tokens)
-- **Project Management** - Organize files into projects with unique API keys
-- **File Upload/Download** - High-performance file handling with folder support
-- **CDN Capabilities** - Public/private access control for files and folders
-- **Self-Hostable** - Easy deployment with Docker
-- **High Performance** - Built with Rust for speed and reliability
+- **Projects with their own API keys** - each project keeps its files, access setting, and upload key separate
+- **Public or private files** - public projects serve every file to anyone; private projects need the API key, a signed link, or a folder made public explicitly
+- **Signed download links** - the dashboard opens private files through short-lived links for one file, so the API key never appears in URLs
+- **Dashboard** - projects table with search, filters and sorting, a storage-by-project overview, file list and grid views, bulk delete, drag-and-drop upload, light and dark themes, and installable app icons
+- **Secure sessions** - short-lived access tokens with rotating refresh tokens and reuse detection
+- **Safe by default** - refuses to start with a missing or example `JWT_SECRET`, requires a strong first admin password, keeps sign-up off unless enabled, and serves uploaded HTML and SVG sandboxed
+- **Simple deployment** - one `compose.yml`, built from source on the server behind Traefik
 
 ## Architecture
 
-- **Backend**: Rust with Axum
-- **Frontend**: Next.js 16 with TypeScript
+- **Backend**: Rust (edition 2024) with Axum 0.8 and SQLx 0.9, running migrations on startup
+- **Frontend**: Next.js 16 and React 19 with TypeScript and Tailwind CSS
 - **Database**: PostgreSQL
-- **Storage**: Local filesystem (S3-compatible storage coming soon)
+- **Storage**: Local filesystem, in a Docker volume
+- **Proxy**: Traefik, shared with other services on the server, provides HTTPS
 
 ## Running FileRunner
 
@@ -56,6 +58,17 @@ git pull origin master
 docker compose up -d --build
 ```
 
+### Health checks
+
+Traefik only routes to a container once its health check reports `healthy`; until then the domain returns 404. Both services have one in `compose.yml`, checked every 10 seconds:
+
+| Service | Check |
+|---------|-------|
+| Backend | `GET http://127.0.0.1:8000/health` returns `OK` |
+| Frontend | `GET http://127.0.0.1:3000/api/config` returns the API address |
+
+The frontend starts only after the backend is healthy. After `docker compose up -d --build`, both usually report `healthy` within about 15 seconds; check with `docker compose ps`. If one stays `starting` or `unhealthy`, look at `docker inspect --format '{{json .State.Health}}' filerunner-backend` and the service logs.
+
 ### Everyday commands
 
 ```bash
@@ -88,11 +101,15 @@ FileRunner uses **two authentication methods** for different purposes:
 | Auth Type | Header | Used For |
 |-----------|--------|----------|
 | **JWT Bearer Token** | `Authorization: Bearer <token>` | User account operations, project management, file listing |
-| **API Key** | `X-API-Key: <api_key>` or `?api_key=<api_key>` | File uploads and downloads (programmatic access) |
+| **API Key** | `X-API-Key: <api_key>` (or `?api_key=<api_key>`) | File uploads, downloads, and deletes from your apps |
+| **Signed link** | `?token=<token>` | Opening one private file for a limited time (issued in file listings) |
 
 **When to use each:**
 - Use **JWT tokens** when managing your account through the dashboard or API (creating projects, listing files, deleting files via dashboard)
-- Use **API keys** when integrating file uploads/downloads into your applications (each project has its own unique API key)
+- Use **API keys** when integrating file uploads/downloads into your applications (each project has its own unique API key). Prefer the header: a key in a URL ends up in logs and browser history, and it grants full access to the project
+- **Signed links** come from the file listing (`access_url`) and open a single private file for two hours
+
+**Accounts with a temporary password:** the first admin account must change its password before doing anything else. Until then every endpoint except `GET /api/auth/me`, `PUT /api/auth/change-password`, and the logout endpoints returns `403 Password change required`.
 
 ### Authentication Endpoints
 
@@ -113,7 +130,7 @@ Content-Type: application/json
   "access_token": "eyJhbGciOiJIUzI1NiIs...",
   "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
   "token_type": "Bearer",
-  "expires_in": 1800,
+  "expires_in": 900,
   "user": {
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "email": "user@example.com",
@@ -125,9 +142,9 @@ Content-Type: application/json
 ```
 
 **Errors:**
-- `400` - Invalid email format or password too short (min 6 chars)
+- `400` - Invalid email format or password too short (min 8 chars)
 - `400` - Email already exists
-- `403` - Signup disabled
+- `403` - Signup disabled (sign-up is off unless `ALLOW_SIGNUP=true`)
 
 ---
 
@@ -165,7 +182,7 @@ Content-Type: application/json
   "access_token": "eyJhbGciOiJIUzI1NiIs...",
   "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
   "token_type": "Bearer",
-  "expires_in": 1800
+  "expires_in": 900
 }
 ```
 
@@ -209,14 +226,18 @@ Content-Type: application/json
 **Response (200 OK):**
 ```json
 {
-  "message": "Password changed successfully"
+  "message": "Password changed successfully",
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "Bearer",
+  "expires_in": 900
 }
 ```
 
 **Errors:**
-- `400` - Current password incorrect or new password too short
+- `400` - Current password incorrect, new password too short (min 8 chars), or same as the current one
 
-**Note:** All active refresh tokens are revoked on password change.
+**Note:** Changing the password revokes every existing session and returns a fresh one for this client. Store the new tokens; the old refresh token no longer works.
 
 ---
 
@@ -448,20 +469,25 @@ GET /api/files/:file_id
 X-API-Key: <project_api_key> (for private files)
 ```
 
-Or using query parameter:
+Or with a signed link from the file listing (`access_url`), which opens this one file for two hours:
 ```http
-GET /api/files/:file_id?api_key=<project_api_key>
+GET /api/files/:file_id?token=<download_token>
 ```
 
-**Response:** Binary file content with appropriate headers:
-- `Content-Type`: Detected MIME type
+The key can also go in the query string (`?api_key=<project_api_key>`), but avoid it: URLs are logged and the key grants full access to the project.
+
+Add `download=true` to get the file as an attachment instead of displaying it.
+
+**Response:** Binary file content with these headers:
+- `Content-Type`: MIME type detected from the file name
 - `Content-Length`: File size in bytes
-- `Content-Disposition`: `inline; filename="original_name.ext"`
+- `Content-Disposition`: `inline` (or `attachment`) with an ASCII `filename` and the exact UTF-8 name in `filename*`
+- `Content-Security-Policy: sandbox; ...` for HTML, XHTML, SVG, and XML files, so an uploaded page can't run script on this site
 
 **Access Control:**
-- **Public project**: No API key needed
-- **Public folder in private project**: No API key needed
-- **Private project/folder**: API key required (header or query param)
+- **Public project**: Anyone can download
+- **Private project**: Needs the API key, a valid signed link, or a folder made public explicitly
+- **Folders**: Private unless made public with `is_public: true`. Folders created by uploads are always private, so making a project private hides everything in it
 
 ---
 
@@ -483,10 +509,13 @@ Authorization: Bearer <jwt_token>
     "size": 245760,
     "mime_type": "image/jpeg",
     "upload_date": "2024-01-15T11:00:00Z",
-    "download_url": "/api/files/550e8400-e29b-41d4-a716-446655440000"
+    "download_url": "/api/files/550e8400-e29b-41d4-a716-446655440000",
+    "access_url": "/api/files/550e8400-e29b-41d4-a716-446655440000?token=eyJ..."
   }
 ]
 ```
+
+`access_url` appears only for files in private projects. It is a signed link to that one file, valid for two hours; fetch the list again for fresh links.
 
 ---
 
@@ -608,7 +637,9 @@ Content-Type: application/json
 }
 ```
 
-**Note:** If folder already exists, updates its visibility.
+**Notes:**
+- `is_public` defaults to `false`. A public folder shares its files even when the project is private.
+- If the folder already exists, this updates its visibility.
 
 ---
 
@@ -667,6 +698,8 @@ GET /health
 
 **Response (200 OK):** `OK`
 
+Used by the Docker health check (see "Health checks" above).
+
 ---
 
 ### Error Responses
@@ -683,7 +716,7 @@ All errors return JSON with an `error` field:
 |-------------|-------------|
 | `400` | Bad Request - Invalid input, validation error |
 | `401` | Unauthorized - Missing or invalid token/API key |
-| `403` | Forbidden - Token reuse detected, signup disabled |
+| `403` | Forbidden - Token reuse detected, signup disabled, or password change required |
 | `404` | Not Found - Resource doesn't exist or access denied |
 | `500` | Internal Server Error - Server-side error |
 
@@ -697,6 +730,8 @@ All errors return JSON with an `error` field:
 | File upload (`/api/upload`) | 1 req/sec | 10 |
 | Folder delete (`/api/folders/delete`) | 1 req/sec | 10 |
 | Other endpoints | No limit | - |
+
+Limits are counted per client IP address as the backend sees it. Behind Traefik that is the proxy's address, so all users currently share these limits (see "Known issues").
 
 ---
 
@@ -1183,17 +1218,20 @@ The frontend's `API_URL` is set in `compose.yml` and read at runtime, so changin
 
 ## Security Features
 
-FileRunner implements multiple security measures:
-
 | Feature | Description |
 |---------|-------------|
-| **Token Rotation** | Refresh tokens are rotated on each use |
-| **Reuse Detection** | Detects token reuse attacks and revokes all tokens |
-| **Path Traversal Protection** | Blocks `..`, null bytes, and invalid characters in paths |
-| **Password Hashing** | Uses bcrypt for secure password storage |
-| **Rate Limiting** | Prevents brute force on auth and upload endpoints |
-| **CORS Protection** | Configurable allowed origins |
-| **Security Headers** | X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy |
+| **Password hashing** | Argon2id |
+| **Short-lived sessions** | 15-minute access tokens; refresh tokens rotate on each use and are stored hashed |
+| **Reuse detection** | Reusing a rotated refresh token revokes that whole session |
+| **Password changes** | Revoke every session; accounts with a temporary password can't use the API until they change it |
+| **Startup checks** | Refuses a missing, short (under 32 characters), or example `JWT_SECRET`, and a weak first admin password |
+| **Closed sign-up** | Registration is off unless `ALLOW_SIGNUP=true` |
+| **Signed download links** | Private files open through expiring, single-file links instead of the project API key |
+| **Sandboxed uploads** | HTML, XHTML, SVG, and XML files are served with a `sandbox` Content-Security-Policy |
+| **Path traversal protection** | Blocks `..`, absolute paths, hidden folders, null bytes, and unexpected characters in folder paths |
+| **Rate limiting** | On auth and upload endpoints |
+| **CORS** | Only the configured frontend origins may call the API |
+| **Security headers** | X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy |
 
 ---
 
@@ -1205,6 +1243,15 @@ FileRunner implements multiple security measures:
 - `password_hash` (String)
 - `role` (Enum: admin, user)
 - `created_at` (Timestamp)
+- `must_change_password` (Boolean)
+
+### Refresh Tokens
+- `id` (UUID, Primary Key)
+- `user_id` (UUID, Foreign Key)
+- `token_hash` (String, SHA-256 of the token)
+- `family_id` (UUID, one per sign-in session)
+- `expires_at`, `created_at`, `revoked_at` (Timestamps)
+- `revoked_reason`, `user_agent`, `ip_address`
 
 ### Projects
 - `id` (UUID, Primary Key)
@@ -1218,7 +1265,7 @@ FileRunner implements multiple security measures:
 - `id` (UUID, Primary Key)
 - `project_id` (UUID, Foreign Key)
 - `path` (String)
-- `is_public` (Boolean)
+- `is_public` (Boolean, default false)
 - `created_at` (Timestamp)
 
 ### Files
@@ -1231,6 +1278,33 @@ FileRunner implements multiple security measures:
 - `size` (BigInt)
 - `mime_type` (String)
 - `upload_date` (Timestamp)
+
+---
+
+## Known Issues
+
+Found in the September 2026 audit and not fixed yet:
+
+- **Legacy tokens**: `/api/auth/login-legacy` issues 7-day tokens that survive password changes and "log out everywhere".
+- **Deleting a project** removes its database records but leaves its files on disk.
+- **Large files** are read fully into memory on upload and download. There is no support for range requests (seeking in video, resuming downloads) or caching headers.
+- **Two open tabs** can log each other out: both refresh with the same token and the second is treated as reuse.
+- **Rate limits** are shared by everyone behind Traefik, because the backend sees the proxy's address.
+- **API keys** grant full access (upload, download, and delete); there is no read-only key.
+
+---
+
+## Changelog
+
+### September 2026
+
+- **Redesigned dashboard**: sidebar navigation, projects table with search, filters and sorting, storage-by-project overview, file table and grid views, clearer loading, empty and error states, light and dark themes.
+- **Favicons and app icons**, per-page tab titles, and a branded 404 page.
+- **Upgrades**: Rust dependencies to their latest versions (Axum 0.8, SQLx 0.9, jsonwebtoken 11, argon2 0.6) on Rust edition 2024; Next.js 16.3 and React 19.3. Known dependency vulnerabilities went from 8 to 1 (Rust; the remaining one is in RSA code the app doesn't use) and from 7 to 0 (npm).
+- **Security fixes**: sandboxed HTML and SVG, folders private by default (with a migration that closes the old leak), startup checks for `JWT_SECRET` and the admin password, sign-up off by default, password changes enforced by the server, signed download links in the dashboard.
+- **Bug fixes**: users were logged out about 15 minutes after changing their password; non-ASCII download file names; the frontend health check.
+- **Deployment**: one `compose.yml` built from source behind Traefik, with health checks. Removed GitHub Actions, Docker Hub publishing, the nginx configs, and the old compose files.
+- **Tests**: first backend unit tests (`cargo test`).
 
 ---
 
