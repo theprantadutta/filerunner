@@ -16,7 +16,9 @@ use axum::{
 use sqlx::PgPool;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
+use tower_governor::{
+    GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
+};
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -26,18 +28,19 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use config::Config;
 use handlers::{
     auth::{
-        change_password, ensure_admin_user, get_current_user, login, login_legacy, logout,
-        logout_all, refresh_token, register, register_legacy,
+        change_password, ensure_admin_user, get_current_user, login, logout, logout_all,
+        refresh_token, register,
     },
     file::{
         bulk_delete_files, delete_file, delete_folder_files, download_file, list_project_files,
-        upload_file,
+        recent_files, upload_file,
     },
     folder::{create_folder, list_folders, update_folder_visibility},
     project::{
         create_project, delete_project, empty_project, get_project, list_projects,
-        regenerate_api_key, update_project,
+        regenerate_api_key, regenerate_read_key, update_project,
     },
+    stats::get_stats,
 };
 use middleware::{optional_auth, require_auth};
 
@@ -112,21 +115,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             header::AUTHORIZATION,
             header::CONTENT_TYPE,
             header::HeaderName::from_static("x-api-key"),
+            header::RANGE,
         ]);
 
-    // Configure rate limiting for auth endpoints (5 requests per second per IP)
+    // Rate limits are per client IP. SmartIpKeyExtractor reads the address Traefik forwards
+    // (X-Forwarded-For / X-Real-IP), falling back to the peer address, so users behind the
+    // proxy each get their own budget. The backend must only be reachable through the proxy,
+    // otherwise clients could set these headers themselves.
+
+    // Auth: bursts of 10, then one attempt every 5 seconds
     let auth_rate_limit = GovernorConfigBuilder::default()
         .per_second(5)
         .burst_size(10)
+        .key_extractor(SmartIpKeyExtractor)
         .finish()
         .unwrap();
 
-    // Configure rate limiting for file uploads (10 requests per minute per IP)
+    // Uploads: bursts of 30, then one per second
     let upload_rate_limit = GovernorConfigBuilder::default()
         .per_second(1)
-        .burst_size(10)
+        .burst_size(30)
+        .key_extractor(SmartIpKeyExtractor)
         .finish()
         .unwrap();
+
+    // Room for the multipart envelope around a file of the maximum size
+    let upload_body_limit = config.max_file_size + 1024 * 1024;
 
     // Auth routes with rate limiting (public - no JWT required)
     let auth_routes = Router::new()
@@ -134,18 +148,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/auth/register", post(register))
         .route("/api/auth/login", post(login))
         .route("/api/auth/refresh", post(refresh_token))
-        // Legacy single-token endpoints (for backward compatibility)
-        .route("/api/auth/register-legacy", post(register_legacy))
-        .route("/api/auth/login-legacy", post(login_legacy))
         .layer(GovernorLayer::new(auth_rate_limit));
 
-    // Upload routes with rate limiting (API key based)
-    // Allow up to 500MB for file uploads
+    // Upload routes with rate limiting (API key based); body size follows MAX_FILE_SIZE
     let upload_routes = Router::new()
         .route("/api/upload", post(upload_file))
         .route("/api/folders/delete", post(delete_folder_files))
-        .layer(DefaultBodyLimit::max(500 * 1024 * 1024)) // 500MB limit for Axum extractors
-        .layer(RequestBodyLimitLayer::new(500 * 1024 * 1024)) // 500MB limit for tower-http
+        .layer(DefaultBodyLimit::max(upload_body_limit))
+        .layer(RequestBodyLimitLayer::new(upload_body_limit))
         .layer(GovernorLayer::new(upload_rate_limit));
 
     // Protected routes (require authentication)
@@ -165,6 +175,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/projects/{id}/regenerate-key",
             post(regenerate_api_key),
         )
+        .route(
+            "/api/projects/{id}/regenerate-read-key",
+            post(regenerate_read_key),
+        )
+        .route("/api/files/recent", get(recent_files))
+        .route("/api/stats", get(get_stats))
         .route("/api/projects/{id}/files", get(list_project_files))
         .route("/api/projects/{id}/empty", delete(empty_project))
         // Folder routes (protected)

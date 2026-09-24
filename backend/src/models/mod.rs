@@ -12,6 +12,6 @@ pub use refresh_token::{
     TokenAuthResponse, TokenRefreshResponse,
 };
 pub use user::{
-    AuthResponse, ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest, LoginRequest,
-    User, UserInfo, UserRole,
+    ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest, LoginRequest, User, UserInfo,
+    UserRole,
 };

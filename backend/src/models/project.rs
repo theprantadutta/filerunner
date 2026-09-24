@@ -10,6 +10,8 @@ pub struct Project {
     pub user_id: Uuid,
     pub name: String,
     pub api_key: Uuid,
+    /// Download-only key: safe for links and front-end code
+    pub read_key: Uuid,
     pub is_public: bool,
     pub created_at: DateTime<Utc>,
 }
@@ -41,6 +43,7 @@ pub struct ProjectResponse {
     pub id: Uuid,
     pub name: String,
     pub api_key: Uuid,
+    pub read_key: Uuid,
     pub is_public: bool,
     pub created_at: DateTime<Utc>,
     pub file_count: Option<i64>,

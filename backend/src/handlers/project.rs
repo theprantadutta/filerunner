@@ -29,7 +29,7 @@ pub async fn create_project(
         r#"
         INSERT INTO projects (user_id, name, is_public)
         VALUES ($1, $2, $3)
-        RETURNING id, user_id, name, api_key, is_public, created_at
+        RETURNING id, user_id, name, api_key, read_key, is_public, created_at
         "#,
     )
     .bind(auth_user.id)
@@ -52,6 +52,7 @@ pub async fn list_projects(
             p.id,
             p.name,
             p.api_key,
+            p.read_key,
             p.is_public,
             p.created_at,
             COUNT(f.id)::bigint as file_count,
@@ -59,7 +60,7 @@ pub async fn list_projects(
         FROM projects p
         LEFT JOIN files f ON f.project_id = p.id
         WHERE p.user_id = $1
-        GROUP BY p.id, p.name, p.api_key, p.is_public, p.created_at
+        GROUP BY p.id, p.name, p.api_key, p.read_key, p.is_public, p.created_at
         ORDER BY p.created_at DESC
         "#,
     )
@@ -77,7 +78,7 @@ pub async fn get_project(
 ) -> Result<Json<ProjectResponse>> {
     let project = sqlx::query_as::<_, Project>(
         r#"
-        SELECT id, user_id, name, api_key, is_public, created_at
+        SELECT id, user_id, name, api_key, read_key, is_public, created_at
         FROM projects
         WHERE id = $1 AND user_id = $2
         "#,
@@ -103,6 +104,7 @@ pub async fn get_project(
         id: project.id,
         name: project.name,
         api_key: project.api_key,
+        read_key: project.read_key,
         is_public: project.is_public,
         created_at: project.created_at,
         file_count: stats.0,
@@ -122,7 +124,7 @@ pub async fn update_project(
 
     // Check if project exists and belongs to user
     let existing = sqlx::query_as::<_, Project>(
-        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2"
+        "SELECT id, user_id, name, api_key, read_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2"
     )
     .bind(id)
     .bind(auth_user.id)
@@ -138,7 +140,7 @@ pub async fn update_project(
         UPDATE projects
         SET name = $1, is_public = $2
         WHERE id = $3
-        RETURNING id, user_id, name, api_key, is_public, created_at
+        RETURNING id, user_id, name, api_key, read_key, is_public, created_at
         "#,
     )
     .bind(&name)
@@ -165,6 +167,17 @@ pub async fn delete_project(
         return Err(AppError::NotFound("Project not found".to_string()));
     }
 
+    // The database rows are gone (files and folders cascade); remove the files themselves too
+    let storage_path = PathBuf::from(&state.config.storage_path).join(id.to_string());
+    if fs::try_exists(&storage_path).await.unwrap_or(false)
+        && let Err(e) = fs::remove_dir_all(&storage_path).await
+    {
+        tracing::warn!(
+            "Deleted project {id} but could not remove {}: {e}",
+            storage_path.display()
+        );
+    }
+
     Ok(Json(serde_json::json!({
         "message": "Project deleted successfully"
     })))
@@ -180,7 +193,30 @@ pub async fn regenerate_api_key(
         UPDATE projects
         SET api_key = gen_random_uuid()
         WHERE id = $1 AND user_id = $2
-        RETURNING id, user_id, name, api_key, is_public, created_at
+        RETURNING id, user_id, name, api_key, read_key, is_public, created_at
+        "#,
+    )
+    .bind(id)
+    .bind(auth_user.id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(AppError::NotFound("Project not found".to_string()))?;
+
+    Ok(Json(project))
+}
+
+/// Replace the download-only key; links using the old one stop working
+pub async fn regenerate_read_key(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Project>> {
+    let project = sqlx::query_as::<_, Project>(
+        r#"
+        UPDATE projects
+        SET read_key = gen_random_uuid()
+        WHERE id = $1 AND user_id = $2
+        RETURNING id, user_id, name, api_key, read_key, is_public, created_at
         "#,
     )
     .bind(id)
@@ -201,7 +237,7 @@ pub async fn empty_project(
 ) -> Result<Json<serde_json::Value>> {
     // Verify project exists and user owns it
     let project = sqlx::query_as::<_, Project>(
-        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2",
+        "SELECT id, user_id, name, api_key, read_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2",
     )
     .bind(project_id)
     .bind(auth_user.id)

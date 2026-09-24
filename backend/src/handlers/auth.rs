@@ -10,13 +10,13 @@ use crate::{
     error::{AppError, Result},
     middleware::AuthUser,
     models::{
-        AuthResponse, ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest,
-        LoginRequest, LogoutAllResponse, LogoutRequest, LogoutResponse, RefreshRequest,
-        TokenAuthResponse, TokenRefreshResponse, User, UserInfo, UserRole,
+        ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest, LoginRequest,
+        LogoutAllResponse, LogoutRequest, LogoutResponse, RefreshRequest, TokenAuthResponse,
+        TokenRefreshResponse, User, UserInfo, UserRole,
     },
     utils::{
-        create_access_token, create_refresh_token, create_token, hash_password, hash_token,
-        verify_password, verify_refresh_token,
+        create_access_token, create_refresh_token, hash_password, hash_token, verify_password,
+        verify_refresh_token,
     },
 };
 
@@ -236,17 +236,37 @@ pub async fn refresh_token(
     .fetch_one(&state.pool)
     .await?;
 
-    // Revoke current token (rotation)
-    sqlx::query(
+    // Revoke current token (rotation). Conditional on it still being active, so two requests
+    // racing with the same token can't both succeed: the loser is treated as reuse.
+    let rotated = sqlx::query(
         r#"
         UPDATE refresh_tokens
         SET revoked_at = NOW(), revoked_reason = 'rotation'
-        WHERE id = $1
+        WHERE id = $1 AND revoked_at IS NULL
         "#,
     )
     .bind(stored_token.id)
     .execute(&state.pool)
     .await?;
+
+    if rotated.rows_affected() == 0 {
+        sqlx::query(
+            r#"
+            UPDATE refresh_tokens
+            SET revoked_at = NOW(), revoked_reason = 'security_reuse_detected'
+            WHERE family_id = $1 AND revoked_at IS NULL
+            "#,
+        )
+        .bind(stored_token.family_id)
+        .execute(&state.pool)
+        .await?;
+        tracing::error!(
+            "SECURITY: Concurrent refresh with one token for user {} family {}",
+            stored_token.user_id,
+            stored_token.family_id
+        );
+        return Err(AppError::TokenReuseDetected);
+    }
 
     // Create new access token
     let access_token = create_access_token(
@@ -487,105 +507,4 @@ pub async fn ensure_admin_user(pool: &PgPool, email: &str, password: &str) -> Re
     );
 
     Ok(())
-}
-
-// ============================================================================
-// Legacy endpoint for backward compatibility
-// Can be removed once frontend is updated
-// ============================================================================
-
-pub async fn login_legacy(
-    State(state): State<AppState>,
-    Json(payload): Json<LoginRequest>,
-) -> Result<Json<AuthResponse>> {
-    // Validate input
-    payload
-        .validate()
-        .map_err(|e| AppError::ValidationError(e.to_string()))?;
-
-    // Get user by email
-    let user = sqlx::query_as::<_, User>(
-        r#"
-        SELECT id, email, password_hash, role, created_at, must_change_password
-        FROM users
-        WHERE email = $1
-        "#,
-    )
-    .bind(&payload.email)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or(AppError::InvalidCredentials)?;
-
-    // Verify password
-    let is_valid = verify_password(&payload.password, &user.password_hash)
-        .map_err(|e| AppError::InternalError(format!("Password verification failed: {e}")))?;
-
-    if !is_valid {
-        return Err(AppError::InvalidCredentials);
-    }
-
-    // Create legacy JWT token
-    let token = create_token(
-        user.id,
-        user.email.clone(),
-        user.role.to_string(),
-        &state.config.jwt_secret,
-    )?;
-
-    Ok(Json(AuthResponse {
-        token,
-        user: user.into(),
-    }))
-}
-
-pub async fn register_legacy(
-    State(state): State<AppState>,
-    Json(payload): Json<CreateUserRequest>,
-) -> Result<Json<AuthResponse>> {
-    // Validate input
-    payload
-        .validate()
-        .map_err(|e| AppError::ValidationError(e.to_string()))?;
-
-    // Check if signup is allowed
-    if !state.config.allow_signup {
-        return Err(AppError::SignupDisabled);
-    }
-
-    // Hash password
-    let password_hash = hash_password(&payload.password)
-        .map_err(|e| AppError::InternalError(format!("Failed to hash password: {e}")))?;
-
-    // Insert user
-    let user = sqlx::query_as::<_, User>(
-        r#"
-        INSERT INTO users (email, password_hash, role, must_change_password)
-        VALUES ($1, $2, $3, FALSE)
-        RETURNING id, email, password_hash, role, created_at, must_change_password
-        "#,
-    )
-    .bind(&payload.email)
-    .bind(&password_hash)
-    .bind(UserRole::User)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::Database(db_err) if db_err.is_unique_violation() => {
-            AppError::BadRequest("Email already exists".to_string())
-        }
-        _ => AppError::Database(e),
-    })?;
-
-    // Create legacy JWT token
-    let token = create_token(
-        user.id,
-        user.email.clone(),
-        user.role.to_string(),
-        &state.config.jwt_secret,
-    )?;
-
-    Ok(Json(AuthResponse {
-        token,
-        user: user.into(),
-    }))
 }

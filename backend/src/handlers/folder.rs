@@ -29,7 +29,7 @@ pub async fn create_folder(
 
     // Check if project belongs to user
     let _project = sqlx::query_as::<_, Project>(
-        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2"
+        "SELECT id, user_id, name, api_key, read_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2"
     )
     .bind(payload.project_id)
     .bind(auth_user.id)
@@ -64,7 +64,7 @@ pub async fn list_folders(
 ) -> Result<Json<Vec<FolderResponse>>> {
     // Check if project belongs to user
     let _project = sqlx::query_as::<_, Project>(
-        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2"
+        "SELECT id, user_id, name, api_key, read_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2"
     )
     .bind(query.project_id)
     .bind(auth_user.id)

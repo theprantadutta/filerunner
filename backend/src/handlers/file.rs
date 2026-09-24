@@ -1,13 +1,17 @@
 use axum::{
     Json,
     body::Body,
-    extract::{Multipart, Path, State},
-    http::{HeaderMap, StatusCode, header},
+    extract::{Multipart, Path, Query, State, multipart::MultipartError},
+    http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header},
     response::Response,
 };
-use std::path::PathBuf;
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use std::path::{Path as FsPath, PathBuf};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use tower::ServiceExt;
+use tower_http::services::ServeFile;
 use uuid::Uuid;
 
 use crate::{
@@ -18,65 +22,124 @@ use crate::{
     utils::{create_download_token, verify_download_token},
 };
 
+/// Folder paths are relative, slash-separated, and limited to safe characters
+fn validate_folder_path(path: &str) -> Result<()> {
+    if path.contains("..")
+        || path.starts_with('/')
+        || path.starts_with('\\')
+        || path.contains("//")
+        || path.contains("\\\\")
+        || path.contains('\0')
+    {
+        return Err(AppError::BadRequest(
+            "Invalid folder path: path traversal not allowed".to_string(),
+        ));
+    }
+    if !path
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '/' || c == '.')
+    {
+        return Err(AppError::BadRequest(
+            "Invalid folder path: contains invalid characters".to_string(),
+        ));
+    }
+    if path.starts_with('.') || path.contains("/.") {
+        return Err(AppError::BadRequest(
+            "Invalid folder path: hidden folders not allowed".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn multipart_error(e: MultipartError) -> AppError {
+    if e.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        AppError::PayloadTooLarge("File is larger than the upload limit".to_string())
+    } else {
+        AppError::BadRequest(format!("Invalid upload: {e}"))
+    }
+}
+
+/// A file being received. Deleted on drop unless it was moved into place.
+struct TempUpload {
+    path: PathBuf,
+    size: u64,
+}
+
+impl Drop for TempUpload {
+    fn drop(&mut self) {
+        // Already renamed into storage on success, so this only cleans up failures
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 pub async fn upload_file(
     State(state): State<AppState>,
     headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>> {
-    tracing::info!("Upload request received");
-
-    // Get API key from header
+    // Only the full-access key can upload; the read key is download-only
     let api_key = headers
         .get("X-API-Key")
         .and_then(|h| h.to_str().ok())
         .ok_or(AppError::Unauthorized)?;
-
     let api_key_uuid = Uuid::parse_str(api_key).map_err(|_| AppError::Unauthorized)?;
 
-    // Get project by API key
     let project = sqlx::query_as::<_, Project>(
-        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE api_key = $1",
+        "SELECT id, user_id, name, api_key, read_key, is_public, created_at FROM projects WHERE api_key = $1",
     )
     .bind(api_key_uuid)
     .fetch_optional(&state.pool)
     .await?
     .ok_or(AppError::Unauthorized)?;
 
-    let mut file_data: Option<Vec<u8>> = None;
+    // Stream the file to a temporary path inside the storage volume, then move it into place.
+    // Nothing is held in memory beyond one chunk, whatever the file size.
+    let upload_dir = PathBuf::from(&state.config.storage_path).join(".uploads");
+    fs::create_dir_all(&upload_dir)
+        .await
+        .map_err(|e| AppError::FileError(format!("Failed to prepare upload: {e}")))?;
+
+    let max_size = state.config.max_file_size as u64;
+    let mut upload: Option<TempUpload> = None;
     let mut file_name: Option<String> = None;
     let mut folder_path: Option<String> = None;
 
-    // Parse multipart form
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?
-    {
-        let name = field.name().unwrap_or("").to_string();
-
-        match name.as_str() {
+    while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
+        match field.name().unwrap_or("") {
             "file" => {
+                if upload.is_some() {
+                    return Err(AppError::BadRequest(
+                        "Send one file per upload request".to_string(),
+                    ));
+                }
                 file_name = field.file_name().map(|s| s.to_string());
-                tracing::info!("Reading file: {:?}", file_name);
-                file_data = Some(
-                    field
-                        .bytes()
+
+                let mut temp = TempUpload {
+                    path: upload_dir.join(Uuid::new_v4().to_string()),
+                    size: 0,
+                };
+                let mut out = fs::File::create(&temp.path)
+                    .await
+                    .map_err(|e| AppError::FileError(format!("Failed to create file: {e}")))?;
+
+                while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
+                    temp.size += chunk.len() as u64;
+                    if temp.size > max_size {
+                        return Err(AppError::PayloadTooLarge(format!(
+                            "File is larger than the {max_size}-byte upload limit"
+                        )));
+                    }
+                    out.write_all(&chunk)
                         .await
-                        .map_err(|e| {
-                            tracing::error!("Failed to read file bytes: {e}");
-                            AppError::BadRequest(format!("Failed to read file: {e}"))
-                        })?
-                        .to_vec(),
-                );
-                tracing::info!(
-                    "File read successfully, size: {} bytes",
-                    file_data.as_ref().map(|d| d.len()).unwrap_or(0)
-                );
+                        .map_err(|e| AppError::FileError(format!("Failed to write file: {e}")))?;
+                }
+                out.flush()
+                    .await
+                    .map_err(|e| AppError::FileError(format!("Failed to write file: {e}")))?;
+                upload = Some(temp);
             }
             "folder_path" => {
-                let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("Failed to read folder_path: {e}"))
-                })?;
+                let text = field.text().await.map_err(multipart_error)?;
                 if !text.is_empty() {
                     folder_path = Some(text);
                 }
@@ -85,46 +148,10 @@ pub async fn upload_file(
         }
     }
 
-    let file_data = file_data.ok_or(AppError::BadRequest("No file provided".to_string()))?;
+    let upload = upload.ok_or(AppError::BadRequest("No file provided".to_string()))?;
     let file_name = file_name.ok_or(AppError::BadRequest("No filename provided".to_string()))?;
-
-    // Validate folder_path to prevent path traversal attacks
     if let Some(ref path) = folder_path {
-        // Check for path traversal attempts
-        if path.contains("..")
-            || path.starts_with('/')
-            || path.starts_with('\\')
-            || path.contains("//")
-            || path.contains("\\\\")
-            || path.contains('\0')
-        {
-            return Err(AppError::BadRequest(
-                "Invalid folder path: path traversal not allowed".to_string(),
-            ));
-        }
-        // Validate characters (alphanumeric, underscore, hyphen, forward slash, dot)
-        if !path
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '/' || c == '.')
-        {
-            return Err(AppError::BadRequest(
-                "Invalid folder path: contains invalid characters".to_string(),
-            ));
-        }
-        // Prevent hidden folders (starting with dot)
-        if path.starts_with('.') || path.contains("/.") {
-            return Err(AppError::BadRequest(
-                "Invalid folder path: hidden folders not allowed".to_string(),
-            ));
-        }
-    }
-
-    // Check file size
-    if file_data.len() > state.config.max_file_size {
-        return Err(AppError::BadRequest(format!(
-            "File size exceeds maximum of {} bytes",
-            state.config.max_file_size
-        )));
+        validate_folder_path(path)?;
     }
 
     // Get or create folder
@@ -162,38 +189,28 @@ pub async fn upload_file(
         format!("{file_id}.{extension}")
     };
 
-    // Build file path
     let mut storage_path = PathBuf::from(&state.config.storage_path);
     storage_path.push(project.id.to_string());
-
     if let Some(ref path) = folder_path {
         for segment in path.split('/') {
             storage_path.push(segment);
         }
     }
-
-    // Create directory if it doesn't exist
     fs::create_dir_all(&storage_path)
         .await
         .map_err(|e| AppError::FileError(format!("Failed to create directory: {e}")))?;
-
     storage_path.push(&stored_name);
 
-    // Write file to disk
-    let mut file = fs::File::create(&storage_path)
+    fs::rename(&upload.path, &storage_path)
         .await
-        .map_err(|e| AppError::FileError(format!("Failed to create file: {e}")))?;
+        .map_err(|e| AppError::FileError(format!("Failed to store file: {e}")))?;
+    let size = upload.size as i64;
+    drop(upload);
 
-    file.write_all(&file_data)
-        .await
-        .map_err(|e| AppError::FileError(format!("Failed to write file: {e}")))?;
-
-    // Detect MIME type
     let mime_type = mime_guess::from_path(&file_name)
         .first_or_octet_stream()
         .to_string();
 
-    // Save to database
     let file_record = sqlx::query_as::<_, File>(
         r#"
         INSERT INTO files (id, project_id, folder_id, original_name, stored_name, file_path, size, mime_type)
@@ -206,26 +223,34 @@ pub async fn upload_file(
     .bind(folder_id)
     .bind(&file_name)
     .bind(&stored_name)
-    .bind(storage_path.to_str().unwrap())
-    .bind(file_data.len() as i64)
+    .bind(storage_path.to_string_lossy().as_ref())
+    .bind(size)
     .bind(&mime_type)
     .fetch_one(&state.pool)
-    .await?;
+    .await;
 
-    let download_url = format!("/api/files/{}", file_record.id);
+    let file_record = match file_record {
+        Ok(record) => record,
+        Err(e) => {
+            // Don't leave an orphaned file behind when the database insert fails
+            let _ = fs::remove_file(&storage_path).await;
+            return Err(e.into());
+        }
+    };
 
     Ok(Json(UploadResponse {
         file_id: file_record.id,
         original_name: file_record.original_name,
         size: file_record.size,
         mime_type: file_record.mime_type,
-        download_url,
+        download_url: format!("/api/files/{}", file_record.id),
         folder_path,
     }))
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Deserialize)]
 pub struct DownloadQuery {
+    /// Project key (full or read-only). Prefer the X-API-Key header: URLs get logged.
     pub api_key: Option<String>,
     /// Signed, expiring token for this one file (issued to the project owner)
     pub token: Option<String>,
@@ -271,11 +296,11 @@ fn content_disposition(disposition: &str, file_name: &str) -> String {
 
 pub async fn download_file(
     State(state): State<AppState>,
+    method: Method,
     headers: HeaderMap,
     Path(file_id): Path<Uuid>,
-    axum::extract::Query(query): axum::extract::Query<DownloadQuery>,
+    Query(query): Query<DownloadQuery>,
 ) -> Result<Response> {
-    // Get file from database
     let file = sqlx::query_as::<_, File>(
         "SELECT id, project_id, folder_id, original_name, stored_name, file_path, size, mime_type, upload_date FROM files WHERE id = $1"
     )
@@ -284,9 +309,8 @@ pub async fn download_file(
     .await?
     .ok_or(AppError::NotFound("File not found".to_string()))?;
 
-    // Get project
     let project = sqlx::query_as::<_, Project>(
-        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1",
+        "SELECT id, user_id, name, api_key, read_key, is_public, created_at FROM projects WHERE id = $1",
     )
     .bind(file.project_id)
     .fetch_optional(&state.pool)
@@ -298,15 +322,15 @@ pub async fn download_file(
         .token
         .as_deref()
         .is_some_and(|t| verify_download_token(t, &state.config.jwt_secret, file.id));
-    let has_api_key = headers
+    let has_key = headers
         .get("X-API-Key")
         .and_then(|h| h.to_str().ok())
         .or(query.api_key.as_deref())
         .and_then(|key| Uuid::parse_str(key).ok())
-        .is_some_and(|key| key == project.api_key);
+        .is_some_and(|key| key == project.api_key || key == project.read_key);
 
-    let authorized = if project.is_public || has_valid_token || has_api_key {
-        true
+    let public_folder = if project.is_public || has_valid_token || has_key {
+        false
     } else if let Some(folder_id) = file.folder_id {
         // A folder made public explicitly shares its files from a private project
         sqlx::query_scalar::<_, bool>("SELECT is_public FROM folders WHERE id = $1")
@@ -317,40 +341,153 @@ pub async fn download_file(
     } else {
         false
     };
+    let is_public = project.is_public || public_folder;
 
-    if !authorized {
+    if !(is_public || has_valid_token || has_key) {
         return Err(AppError::Unauthorized);
     }
 
-    // Read file from disk
-    let file_path = PathBuf::from(&file.file_path);
-    let file_data = fs::read(&file_path)
-        .await
-        .map_err(|e| AppError::FileError(format!("Failed to read file: {e}")))?;
+    // Files never change after upload, so the ID is a stable validator
+    let etag = HeaderValue::from_str(&format!("\"{}\"", file.id))
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+    let cache_control = HeaderValue::from_static(if is_public {
+        "public, max-age=86400"
+    } else {
+        "private, max-age=3600"
+    });
 
-    // Build response with proper headers
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .is_some_and(|value| value == etag || value == "*")
+    {
+        return Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header(header::ETAG, etag)
+            .header(header::CACHE_CONTROL, cache_control)
+            .body(Body::empty())
+            .map_err(|e| AppError::InternalError(format!("Failed to build response: {e}")));
+    }
+
+    // ServeFile streams from disk and handles Range, If-Modified-Since and HEAD
+    let mut forwarded = Request::new(Body::empty());
+    *forwarded.method_mut() = method;
+    *forwarded.headers_mut() = headers;
+    let served = match ServeFile::new(FsPath::new(&file.file_path))
+        .oneshot(forwarded)
+        .await
+    {
+        Ok(response) => response,
+        Err(never) => match never {},
+    };
+
+    if served.status() == StatusCode::NOT_FOUND {
+        tracing::error!("File {} is missing on disk at {}", file.id, file.file_path);
+        return Err(AppError::NotFound("File content not found".to_string()));
+    }
+
+    let (mut parts, body) = served.into_parts();
+    let headers = &mut parts.headers;
+    if parts.status.is_success() {
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_str(&file.mime_type)
+                .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+        );
+    }
     // Use "attachment" if download=true, otherwise "inline" for browser preview
     let disposition = if query.download.unwrap_or(false) {
         "attachment"
     } else {
         "inline"
     };
-
-    let mut response = Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, &file.mime_type)
-        .header(header::CONTENT_LENGTH, file_data.len())
-        .header(
-            header::CONTENT_DISPOSITION,
-            content_disposition(disposition, &file.original_name),
-        );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&content_disposition(disposition, &file.original_name))
+            .map_err(|e| AppError::InternalError(e.to_string()))?,
+    );
     if is_active_content(&file.mime_type) {
-        response = response.header(header::CONTENT_SECURITY_POLICY, ACTIVE_CONTENT_CSP);
+        headers.insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(ACTIVE_CONTENT_CSP),
+        );
     }
+    headers.insert(header::ETAG, etag);
+    headers.insert(header::CACHE_CONTROL, cache_control);
 
-    response
-        .body(Body::from(file_data))
-        .map_err(|e| AppError::InternalError(format!("Failed to build response: {e}")))
+    Ok(Response::from_parts(parts, Body::new(body)))
+}
+
+#[derive(Deserialize)]
+pub struct RecentQuery {
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct RecentFile {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub project_name: String,
+    pub project_is_public: bool,
+    pub folder_path: Option<String>,
+    pub original_name: String,
+    pub size: i64,
+    pub mime_type: String,
+    pub upload_date: chrono::DateTime<chrono::Utc>,
+    pub download_url: String,
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_url: Option<String>,
+}
+
+/// Latest uploads across all of the user's projects (for the dashboard)
+pub async fn recent_files(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Query(query): Query<RecentQuery>,
+) -> Result<Json<Vec<RecentFile>>> {
+    let limit = query.limit.unwrap_or(12).clamp(1, 50);
+    let files = sqlx::query_as::<_, RecentFile>(
+        r#"
+        SELECT
+            f.id,
+            f.project_id,
+            p.name AS project_name,
+            p.is_public AS project_is_public,
+            fol.path AS folder_path,
+            f.original_name,
+            f.size,
+            f.mime_type,
+            f.upload_date,
+            '/api/files/' || f.id::text AS download_url
+        FROM files f
+        JOIN projects p ON p.id = f.project_id
+        LEFT JOIN folders fol ON fol.id = f.folder_id
+        WHERE p.user_id = $1
+        ORDER BY f.upload_date DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(auth_user.id)
+    .bind(limit)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let files = files
+        .into_iter()
+        .map(|mut file| {
+            if !file.project_is_public {
+                let token = create_download_token(
+                    file.id,
+                    &state.config.jwt_secret,
+                    DOWNLOAD_LINK_TTL_SECONDS,
+                )?;
+                file.access_url = Some(format!("{}?token={token}", file.download_url));
+            }
+            Ok(file)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(Json(files))
 }
 
 pub async fn list_project_files(
@@ -360,7 +497,7 @@ pub async fn list_project_files(
 ) -> Result<Json<Vec<FileMetadata>>> {
     // Check if project belongs to user
     let project = sqlx::query_as::<_, Project>(
-        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2"
+        "SELECT id, user_id, name, api_key, read_key, is_public, created_at FROM projects WHERE id = $1 AND user_id = $2"
     )
     .bind(project_id)
     .bind(auth_user.id)
@@ -432,7 +569,7 @@ pub async fn delete_file(
 
     // Get project
     let project = sqlx::query_as::<_, Project>(
-        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE id = $1",
+        "SELECT id, user_id, name, api_key, read_key, is_public, created_at FROM projects WHERE id = $1",
     )
     .bind(file.project_id)
     .fetch_optional(&state.pool)
@@ -501,7 +638,7 @@ pub async fn delete_folder_files(
 
     // Get project by API key
     let project = sqlx::query_as::<_, Project>(
-        "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE api_key = $1",
+        "SELECT id, user_id, name, api_key, read_key, is_public, created_at FROM projects WHERE api_key = $1",
     )
     .bind(api_key_uuid)
     .fetch_optional(&state.pool)
@@ -510,28 +647,7 @@ pub async fn delete_folder_files(
 
     let folder_path = &payload.folder_path;
 
-    // Validate folder_path to prevent path traversal attacks
-    if folder_path.contains("..")
-        || folder_path.starts_with('/')
-        || folder_path.starts_with('\\')
-        || folder_path.contains("//")
-        || folder_path.contains("\\\\")
-        || folder_path.contains('\0')
-    {
-        return Err(AppError::BadRequest(
-            "Invalid folder path: path traversal not allowed".to_string(),
-        ));
-    }
-
-    // Validate characters (alphanumeric, underscore, hyphen, forward slash, dot)
-    if !folder_path
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '/' || c == '.')
-    {
-        return Err(AppError::BadRequest(
-            "Invalid folder path: contains invalid characters".to_string(),
-        ));
-    }
+    validate_folder_path(folder_path)?;
 
     // Get the folder for this project
     let folder = sqlx::query_as::<_, Folder>(
@@ -659,7 +775,7 @@ pub async fn bulk_delete_files(
 
         // Get project by API key
         let project = sqlx::query_as::<_, Project>(
-            "SELECT id, user_id, name, api_key, is_public, created_at FROM projects WHERE api_key = $1"
+            "SELECT id, user_id, name, api_key, read_key, is_public, created_at FROM projects WHERE api_key = $1"
         )
         .bind(api_key_uuid)
         .fetch_optional(&state.pool)
@@ -739,6 +855,31 @@ mod tests {
     fn content_disposition_strips_control_characters() {
         let header = content_disposition("inline", "a\r\nb.txt");
         assert!(!header.contains('\r') && !header.contains('\n'));
+    }
+
+    #[test]
+    fn folder_paths_accept_normal_nesting() {
+        for path in ["images", "images/avatars", "2026/09-report", "a.b/c_d"] {
+            assert!(validate_folder_path(path).is_ok(), "{path}");
+        }
+    }
+
+    #[test]
+    fn folder_paths_reject_traversal_and_hidden() {
+        for path in [
+            "../x",
+            "a/../../b",
+            "/abs",
+            r"\abs",
+            "a//b",
+            ".git",
+            "a/.env",
+            r"a\b",
+            "a b",
+            "a\0b",
+        ] {
+            assert!(validate_folder_path(path).is_err(), "{path:?}");
+        }
     }
 
     #[test]

@@ -11,7 +11,7 @@ use crate::{
     AppState,
     error::{AppError, Result},
     models::UserRole,
-    utils::{verify_access_token, verify_token},
+    utils::verify_access_token,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,16 +62,10 @@ const PASSWORD_CHANGE_ALLOWED: &[&str] = &[
     "/api/auth/logout-all",
 ];
 
-/// Resolve a bearer token to its user ID (access tokens, plus legacy tokens for old clients)
+/// Resolve a bearer access token to its user ID
 fn token_user_id(token: &str, secret: &str) -> Option<Uuid> {
-    let subject = if let Ok(claims) = verify_access_token(token, secret) {
-        claims.sub
-    } else if let Ok(claims) = verify_token(token, secret) {
-        claims.sub
-    } else {
-        return None;
-    };
-    Uuid::parse_str(&subject).ok()
+    let claims = verify_access_token(token, secret).ok()?;
+    Uuid::parse_str(&claims.sub).ok()
 }
 
 fn bearer_token(request: &Request) -> Option<&str> {

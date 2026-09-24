@@ -28,18 +28,6 @@ pub struct RefreshTokenClaims {
     pub iat: i64,
 }
 
-/// Legacy claims for backward compatibility during migration
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Claims {
-    pub sub: String,
-    pub email: String,
-    pub role: String,
-    #[serde(default)]
-    pub token_type: Option<String>,
-    pub exp: i64,
-    pub iat: i64,
-}
-
 impl AccessTokenClaims {
     pub fn new(user_id: Uuid, email: String, role: String, expiry_minutes: i64) -> Self {
         let now = Utc::now();
@@ -185,49 +173,6 @@ pub fn verify_download_token(token: &str, secret: &str, file_id: Uuid) -> bool {
     .unwrap_or(false)
 }
 
-// ============================================================================
-// Legacy functions for backward compatibility during migration period
-// These can be removed once all clients have updated to dual-token system
-// ============================================================================
-
-impl Claims {
-    pub fn new(user_id: Uuid, email: String, role: String) -> Self {
-        let now = Utc::now();
-        let expires_at = now + Duration::days(7);
-
-        Claims {
-            sub: user_id.to_string(),
-            email,
-            role,
-            token_type: Some("legacy".to_string()),
-            iat: now.timestamp(),
-            exp: expires_at.timestamp(),
-        }
-    }
-}
-
-/// Legacy: Create a single token (7-day expiry) - for backward compatibility
-pub fn create_token(user_id: Uuid, email: String, role: String, secret: &str) -> Result<String> {
-    let claims = Claims::new(user_id, email, role);
-    encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(secret.as_ref()),
-    )
-    .map_err(|e| AppError::TokenError(e.to_string()))
-}
-
-/// Legacy: Verify any token type (access, refresh, or legacy)
-pub fn verify_token(token: &str, secret: &str) -> Result<Claims> {
-    decode::<Claims>(
-        token,
-        &DecodingKey::from_secret(secret.as_ref()),
-        &Validation::default(),
-    )
-    .map(|data| data.claims)
-    .map_err(|e| AppError::TokenError(e.to_string()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,7 +204,6 @@ mod tests {
     fn download_token_is_not_a_login() {
         let token = create_download_token(Uuid::new_v4(), SECRET, 60).unwrap();
         assert!(verify_access_token(&token, SECRET).is_err());
-        assert!(verify_token(&token, SECRET).is_err());
         assert!(verify_refresh_token(&token, SECRET).is_err());
     }
 

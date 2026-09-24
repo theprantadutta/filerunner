@@ -47,12 +47,6 @@ pub struct LoginRequest {
 }
 
 #[derive(Debug, Serialize)]
-pub struct AuthResponse {
-    pub token: String,
-    pub user: UserInfo,
-}
-
-#[derive(Debug, Serialize)]
 pub struct UserInfo {
     pub id: Uuid,
     pub email: String,

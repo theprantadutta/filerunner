@@ -50,6 +50,9 @@ pub enum AppError {
 
     #[error("Password change required")]
     PasswordChangeRequired,
+
+    #[error("Payload too large: {0}")]
+    PayloadTooLarge(String),
 }
 
 impl IntoResponse for AppError {
@@ -96,6 +99,7 @@ impl IntoResponse for AppError {
             AppError::ValidationError(ref msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::SignupDisabled => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::PasswordChangeRequired => (StatusCode::FORBIDDEN, self.to_string()),
+            AppError::PayloadTooLarge(ref msg) => (StatusCode::PAYLOAD_TOO_LARGE, msg.clone()),
         };
 
         let body = Json(json!({
