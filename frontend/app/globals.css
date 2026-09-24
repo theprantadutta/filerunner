@@ -19,10 +19,15 @@
     --line: 226 229 236;
     --line-strong: 206 210 220;
 
-    /* Chrome: the navigation rail stays dark in both themes */
+    /* Always-dark surfaces: dialog overlays, code blocks, the sign-in wall */
     --rail: 20 21 27;
     --rail-ink: 236 238 243;
     --rail-muted: 139 143 158;
+
+    /* Navigation (desktop rail, phone tab bar): follows the theme */
+    --nav: 255 255 255;
+    --nav-ink: 21 22 27;
+    --nav-muted: 118 123 138;
 
     /* Primary action colour */
     --brand: 47 91 255;
@@ -61,6 +66,10 @@
     --rail: 6 7 10;
     --rail-ink: 236 238 243;
     --rail-muted: 120 124 140;
+
+    --nav: 6 7 10;
+    --nav-ink: 236 238 243;
+    --nav-muted: 120 124 140;
 
     --brand: 102 136 255;
     --brand-ink: 10 12 20;
