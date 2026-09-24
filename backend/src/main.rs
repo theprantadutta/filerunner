@@ -14,6 +14,7 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use sqlx::PgPool;
+use std::io::IsTerminal;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_governor::{
@@ -22,7 +23,6 @@ use tower_governor::{
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
-use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use config::Config;
@@ -52,13 +52,14 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize tracing
+    // Logging: RUST_LOG if set, otherwise app events and one line per request at info.
+    // Colours only on a terminal, so `docker compose logs` stays plain text.
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "filerunner_backend=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "info,sqlx=warn,tower_http=warn".into()),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_ansi(std::io::stdout().is_terminal()))
         .init();
 
     // Load configuration
@@ -230,8 +231,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/files/{id}", get(download_file))
         // Health check
         .route("/health", get(|| async { "OK" }))
-        // Add request/response tracing
-        .layer(TraceLayer::new_for_http())
+        // One log line per request (path only, never the query string)
+        .layer(axum_middleware::from_fn(middleware::access_log::access_log))
         .layer(cors)
         // Security headers
         .layer(SetResponseHeaderLayer::overriding(
@@ -260,7 +261,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
     tracing::info!("FileRunner backend listening on {}", addr);
-    tracing::info!("API documentation available at http://{}/", addr);
 
     axum::serve(
         listener,

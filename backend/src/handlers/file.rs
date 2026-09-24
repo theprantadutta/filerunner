@@ -181,6 +181,11 @@ pub(crate) async fn delete_folder_tree(
         remove_empty_dirs(parent.to_path_buf(), &project_dir).await;
     }
 
+    tracing::info!(
+        "Deleted folder {folder_path} ({} files) from project {project_id}",
+        files.len()
+    );
+
     Ok(files.len() as u64)
 }
 
@@ -380,6 +385,13 @@ pub async fn upload_file(
             return Err(e.into());
         }
     };
+
+    tracing::info!(
+        "Uploaded {} ({} bytes) to project {}",
+        file_record.original_name,
+        file_record.size,
+        project.id
+    );
 
     Ok(Json(UploadResponse {
         file_id: file_record.id,
@@ -758,6 +770,8 @@ pub async fn delete_file(
         prune_empty_folders(&state, &[folder_id]).await;
     }
 
+    tracing::info!("Deleted file {} from project {}", file.id, project.id);
+
     Ok(Json(serde_json::json!({
         "message": "File deleted successfully"
     })))
@@ -917,6 +931,8 @@ pub async fn bulk_delete_files(
     folder_ids.sort();
     folder_ids.dedup();
     prune_empty_folders(&state, &folder_ids).await;
+
+    tracing::info!("Deleted {deleted_count} files in bulk");
 
     Ok(Json(serde_json::json!({
         "message": "Files deleted successfully",

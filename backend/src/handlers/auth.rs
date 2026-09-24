@@ -117,6 +117,8 @@ pub async fn register(
     let (access_token, refresh_token, expires_in) =
         create_token_pair(&state.pool, &user, &state.config, None, None).await?;
 
+    tracing::info!("New account {}", user.email);
+
     Ok(Json(TokenAuthResponse {
         access_token,
         refresh_token,
@@ -146,19 +148,25 @@ pub async fn login(
     .bind(&payload.email)
     .fetch_optional(&state.pool)
     .await?
-    .ok_or(AppError::InvalidCredentials)?;
+    .ok_or_else(|| {
+        tracing::warn!("Sign-in failed for {}: no such account", payload.email);
+        AppError::InvalidCredentials
+    })?;
 
     // Verify password
     let is_valid = verify_password(&payload.password, &user.password_hash)
         .map_err(|e| AppError::InternalError(format!("Password verification failed: {e}")))?;
 
     if !is_valid {
+        tracing::warn!("Sign-in failed for {}: wrong password", user.email);
         return Err(AppError::InvalidCredentials);
     }
 
     // Create token pair
     let (access_token, refresh_token, expires_in) =
         create_token_pair(&state.pool, &user, &state.config, None, None).await?;
+
+    tracing::info!("Signed in {}", user.email);
 
     Ok(Json(TokenAuthResponse {
         access_token,
@@ -360,6 +368,12 @@ pub async fn logout_all(
     .execute(&state.pool)
     .await?;
 
+    tracing::info!(
+        "Signed out {} of {} sessions",
+        auth_user.email,
+        result.rows_affected()
+    );
+
     Ok(Json(LogoutAllResponse {
         message: "All sessions logged out".to_string(),
         revoked_count: result.rows_affected() as i64,
@@ -453,6 +467,8 @@ pub async fn change_password(
     };
     let (access_token, refresh_token, expires_in) =
         create_token_pair(&state.pool, &user, &state.config, None, None).await?;
+
+    tracing::info!("Password changed for {}", user.email);
 
     Ok(Json(ChangePasswordResponse {
         message: "Password changed successfully".to_string(),

@@ -78,6 +78,26 @@ docker compose restart filerunner-backend
 docker compose down
 ```
 
+### Logs
+
+```bash
+docker compose logs -f filerunner-backend
+docker compose logs -f filerunner-frontend
+```
+
+The backend writes plain text, one line per request plus events worth knowing about:
+
+```
+2026-09-24T06:36:14Z  WARN filerunner_backend::handlers::auth: Sign-in failed for ivy@test.dev: wrong password
+2026-09-24T06:36:14Z  INFO access: POST /api/auth/login 401 367ms ip=203.0.113.5
+2026-09-24T06:36:15Z  INFO filerunner_backend::handlers::file: Uploaded logo.png (48213 bytes) to project 5cc8fd3e-...
+2026-09-24T06:36:15Z  INFO access: POST /api/upload 200 45ms ip=203.0.113.5
+```
+
+The frontend logs each page request (`GET /dashboard ip=...`). Neither logs query strings, so keys and signed links never reach the logs, and health checks are left out.
+
+Set `RUST_LOG` in `.env` to change the backend's detail: the default is `info,sqlx=warn,tower_http=warn`; `warn` shows only problems, `debug` adds internals.
+
 ### Local development
 
 ```bash

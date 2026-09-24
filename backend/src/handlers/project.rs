@@ -38,6 +38,8 @@ pub async fn create_project(
     .fetch_one(&state.pool)
     .await?;
 
+    tracing::info!("Created project {} ({})", project.name, project.id);
+
     Ok(Json(project))
 }
 
@@ -178,6 +180,8 @@ pub async fn delete_project(
         );
     }
 
+    tracing::info!("Deleted project {id}");
+
     Ok(Json(serde_json::json!({
         "message": "Project deleted successfully"
     })))
@@ -202,6 +206,8 @@ pub async fn regenerate_api_key(
     .await?
     .ok_or(AppError::NotFound("Project not found".to_string()))?;
 
+    tracing::info!("Regenerated the upload key for project {}", project.id);
+
     Ok(Json(project))
 }
 
@@ -224,6 +230,8 @@ pub async fn regenerate_read_key(
     .fetch_optional(&state.pool)
     .await?
     .ok_or(AppError::NotFound("Project not found".to_string()))?;
+
+    tracing::info!("Regenerated the read-only key for project {}", project.id);
 
     Ok(Json(project))
 }
@@ -298,6 +306,8 @@ pub async fn empty_project(
             }
         }
     }
+
+    tracing::info!("Emptied project {project_id} ({deleted_count} files)");
 
     Ok(Json(serde_json::json!({
         "message": "Project emptied successfully",
