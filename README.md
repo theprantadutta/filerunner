@@ -4,11 +4,11 @@ A self-hosted file manager and CDN, built with Rust and Next.js. Upload files fr
 
 ## Features
 
-- **Projects with their own API keys** - each project keeps its files, access setting, and upload key separate
-- **Public or private files** - public projects serve every file to anyone; private projects need the API key, a signed link, or a folder made public explicitly
-- **Signed download links** - the dashboard opens private files through short-lived links for one file, so the API key never appears in URLs
-- **Dashboard** - projects table with search, filters and sorting, a storage-by-project overview, file list and grid views, bulk delete, drag-and-drop upload, light and dark themes, and installable app icons
-- **Secure sessions** - short-lived access tokens with rotating refresh tokens and reuse detection
+- **Projects with two keys** - each project keeps its files and access setting separate, with an upload key for your servers and a read-only key that is safe in links and front-end code
+- **Public or private files** - public projects serve every file to anyone; private projects need a key, a signed link, or a folder made public explicitly
+- **Built for delivery** - uploads and downloads stream straight to and from disk, with range requests (video seeking, resumable downloads), ETags, and cache headers
+- **Dashboard** - an overview with upload and storage charts, colour-coded projects, a ⌘K command palette, drag-and-drop uploads with live per-file progress, file previews, folder filters, gallery and list views, and light and dark themes
+- **Secure sessions** - short-lived access tokens with rotating refresh tokens, reuse detection, and tabs that share one session safely
 - **Safe by default** - refuses to start with a missing or example `JWT_SECRET`, requires a strong first admin password, keeps sign-up off unless enabled, and serves uploaded HTML and SVG sandboxed
 - **Simple deployment** - one `compose.yml`, built from source on the server behind Traefik
 
@@ -101,12 +101,14 @@ FileRunner uses **two authentication methods** for different purposes:
 | Auth Type | Header | Used For |
 |-----------|--------|----------|
 | **JWT Bearer Token** | `Authorization: Bearer <token>` | User account operations, project management, file listing |
-| **API Key** | `X-API-Key: <api_key>` (or `?api_key=<api_key>`) | File uploads, downloads, and deletes from your apps |
+| **Upload key** (`api_key`) | `X-API-Key: <api_key>` | Uploads, downloads, and deletes from your servers |
+| **Read-only key** (`read_key`) | `X-API-Key: <read_key>` or `?api_key=<read_key>` | Downloads only; safe in links and front-end code |
 | **Signed link** | `?token=<token>` | Opening one private file for a limited time (issued in file listings) |
 
 **When to use each:**
 - Use **JWT tokens** when managing your account through the dashboard or API (creating projects, listing files, deleting files via dashboard)
-- Use **API keys** when integrating file uploads/downloads into your applications (each project has its own unique API key). Prefer the header: a key in a URL ends up in logs and browser history, and it grants full access to the project
+- Use the **upload key** from your servers to upload and delete files. Keep it out of URLs and browser code: it grants full access to the project
+- Use the **read-only key** wherever a key has to be visible, such as permanent links to private files or an app's front end. It can download, nothing else
 - **Signed links** come from the file listing (`access_url`) and open a single private file for two hours
 
 **Accounts with a temporary password:** the first admin account must change its password before doing anything else. Until then every endpoint except `GET /api/auth/me`, `PUT /api/auth/change-password`, and the logout endpoints returns `403 Password change required`.
@@ -297,6 +299,7 @@ Content-Type: application/json
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "name": "My Project",
   "api_key": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "read_key": "3f2a6c1e-8b4d-4e9a-a1c7-5d0e9f8b2a61",
   "is_public": false,
   "created_at": "2024-01-15T10:35:00Z"
 }
@@ -320,6 +323,7 @@ Authorization: Bearer <jwt_token>
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "name": "My Project",
     "api_key": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "read_key": "3f2a6c1e-8b4d-4e9a-a1c7-5d0e9f8b2a61",
     "is_public": false,
     "created_at": "2024-01-15T10:35:00Z",
     "file_count": 42,
@@ -368,7 +372,7 @@ Content-Type: application/json
 
 ---
 
-#### Regenerate API Key
+#### Regenerate Upload Key
 ```http
 POST /api/projects/:id/regenerate-key
 Authorization: Bearer <jwt_token>
@@ -385,7 +389,17 @@ Authorization: Bearer <jwt_token>
 }
 ```
 
-**Note:** The old API key becomes immediately invalid.
+**Note:** The old upload key stops working immediately. The read-only key is unchanged.
+
+---
+
+#### Regenerate Read-Only Key
+```http
+POST /api/projects/:id/regenerate-read-key
+Authorization: Bearer <jwt_token>
+```
+
+**Response (200 OK):** the project, with a new `read_key`. Links and apps using the old read-only key stop working immediately; the upload key is unchanged.
 
 ---
 
@@ -448,11 +462,14 @@ folder_path: images/avatars (optional)
 }
 ```
 
+Only the upload key can upload; the read-only key gets `401`. The file is streamed to disk, so large uploads don't use extra memory.
+
 **Errors:**
 - `400` - No file provided
-- `400` - File exceeds maximum size (default: 100MB)
 - `400` - Invalid folder path (see validation rules below)
-- `401` - Missing or invalid API key
+- `401` - Missing or invalid upload key
+- `413` - File larger than `MAX_FILE_SIZE` (default 500 MB)
+- `429` - Too many uploads from this address; retry after the `Retry-After` seconds
 
 **Folder Path Validation:**
 - Only alphanumeric characters, underscores, hyphens, forward slashes, and dots allowed
@@ -466,7 +483,7 @@ folder_path: images/avatars (optional)
 #### Download File
 ```http
 GET /api/files/:file_id
-X-API-Key: <project_api_key> (for private files)
+X-API-Key: <read_key or api_key> (for private files)
 ```
 
 Or with a signed link from the file listing (`access_url`), which opens this one file for two hours:
@@ -483,6 +500,8 @@ Add `download=true` to get the file as an attachment instead of displaying it.
 - `Content-Length`: File size in bytes
 - `Content-Disposition`: `inline` (or `attachment`) with an ASCII `filename` and the exact UTF-8 name in `filename*`
 - `Content-Security-Policy: sandbox; ...` for HTML, XHTML, SVG, and XML files, so an uploaded page can't run script on this site
+- `ETag` and `Cache-Control` (`public, max-age=86400` for public files, `private, max-age=3600` otherwise); send `If-None-Match` to get `304 Not Modified`
+- `Accept-Ranges: bytes`; send `Range: bytes=start-end` for part of a file (`206`, or `416` if out of range). `HEAD` returns the headers only
 
 **Access Control:**
 - **Public project**: Anyone can download
@@ -611,6 +630,43 @@ Content-Type: application/json
 
 ---
 
+#### Recent Files
+```http
+GET /api/files/recent?limit=12
+Authorization: Bearer <jwt_token>
+```
+
+The latest uploads across all your projects (`limit` 1-50, default 12). Each item has the file fields above plus `project_name` and `project_is_public`, and an `access_url` for files in private projects.
+
+---
+
+### Stats
+
+```http
+GET /api/stats
+Authorization: Bearer <jwt_token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "total_projects": 5,
+  "total_files": 28,
+  "total_size": 100767744,
+  "by_category": [
+    { "category": "archives", "files": 3, "size": 65960000 },
+    { "category": "images", "files": 13, "size": 139900 }
+  ],
+  "daily_uploads": [
+    { "day": "2026-08-26", "files": 2, "size": 1843200 }
+  ]
+}
+```
+
+`by_category` groups files as `images`, `video`, `audio`, `documents`, `archives`, `code`, or `other`. `daily_uploads` always has 30 entries, oldest first, including days with no uploads.
+
+---
+
 ### Folders
 
 #### Create Folder
@@ -724,14 +780,13 @@ All errors return JSON with an `error` field:
 
 ### Rate Limiting
 
-| Endpoint Category | Limit | Burst |
-|-------------------|-------|-------|
-| Auth endpoints (`/api/auth/*`) | 5 req/sec | 10 |
-| File upload (`/api/upload`) | 1 req/sec | 10 |
-| Folder delete (`/api/folders/delete`) | 1 req/sec | 10 |
-| Other endpoints | No limit | - |
+| Endpoint | Burst | Then |
+|----------|-------|------|
+| Sign-in, sign-up, refresh (`/api/auth/login`, `/register`, `/refresh`) | 10 requests | 1 every 5 seconds |
+| File upload and folder delete (`/api/upload`, `/api/folders/delete`) | 30 requests | 1 per second |
+| Everything else | No limit | |
 
-Limits are counted per client IP address as the backend sees it. Behind Traefik that is the proxy's address, so all users currently share these limits (see "Known issues").
+Limits are per client IP address, read from the `X-Forwarded-For` / `X-Real-IP` headers Traefik sets. The backend must only be reachable through the proxy (as in `compose.yml`, which publishes no ports); otherwise clients could set those headers themselves. Limited requests get `429` with a `Retry-After` header.
 
 ---
 
@@ -1179,10 +1234,14 @@ Folders (Bearer token):
 - GET /api/folders?project_id=:id - List folders
 - PUT /api/folders/:id/visibility - Update visibility
 
+KEYS:
+- api_key (upload key): upload, download, delete. Keep it server-side.
+- read_key (read-only key): download only. Safe in links and front ends.
+
 LIMITS:
-- Max file size: 100MB (configurable)
-- Auth rate limit: 5 req/sec
-- Upload rate limit: 1 req/sec
+- Max file size: 500 MB by default (MAX_FILE_SIZE)
+- Sign-in: bursts of 10, then 1 every 5 seconds per IP
+- Uploads: bursts of 30, then 1 per second per IP (429 with Retry-After)
 
 I need help with:
 [YOUR SPECIFIC REQUEST]
@@ -1226,10 +1285,11 @@ The frontend's `API_URL` is set in `compose.yml` and read at runtime, so changin
 | **Password changes** | Revoke every session; accounts with a temporary password can't use the API until they change it |
 | **Startup checks** | Refuses a missing, short (under 32 characters), or example `JWT_SECRET`, and a weak first admin password |
 | **Closed sign-up** | Registration is off unless `ALLOW_SIGNUP=true` |
-| **Signed download links** | Private files open through expiring, single-file links instead of the project API key |
+| **Signed download links** | Private files open through expiring, single-file links instead of a project key |
+| **Read-only keys** | Each project has a download-only key for links and front ends; only the upload key can change files |
 | **Sandboxed uploads** | HTML, XHTML, SVG, and XML files are served with a `sandbox` Content-Security-Policy |
 | **Path traversal protection** | Blocks `..`, absolute paths, hidden folders, null bytes, and unexpected characters in folder paths |
-| **Rate limiting** | On auth and upload endpoints |
+| **Rate limiting** | On sign-in and upload endpoints, per client IP |
 | **CORS** | Only the configured frontend origins may call the API |
 | **Security headers** | X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy |
 
@@ -1257,7 +1317,8 @@ The frontend's `API_URL` is set in `compose.yml` and read at runtime, so changin
 - `id` (UUID, Primary Key)
 - `user_id` (UUID, Foreign Key)
 - `name` (String)
-- `api_key` (UUID, Unique)
+- `api_key` (UUID, Unique) - upload key
+- `read_key` (UUID, Unique) - read-only key
 - `is_public` (Boolean)
 - `created_at` (Timestamp)
 
@@ -1281,20 +1342,24 @@ The frontend's `API_URL` is set in `compose.yml` and read at runtime, so changin
 
 ---
 
-## Known Issues
+## Limitations
 
-Found in the September 2026 audit and not fixed yet:
-
-- **Legacy tokens**: `/api/auth/login-legacy` issues 7-day tokens that survive password changes and "log out everywhere".
-- **Deleting a project** removes its database records but leaves its files on disk.
-- **Large files** are read fully into memory on upload and download. There is no support for range requests (seeking in video, resuming downloads) or caching headers.
-- **Two open tabs** can log each other out: both refresh with the same token and the second is treated as reuse.
-- **Rate limits** are shared by everyone behind Traefik, because the backend sees the proxy's address.
-- **API keys** grant full access (upload, download, and delete); there is no read-only key.
+- **Accounts**: the `admin` role has no extra powers yet, and there is no screen for managing other users. With `ALLOW_SIGNUP=false` (the default), new accounts can't be created from the app.
+- **Storage**: files live on the server's disk (a Docker volume); there is no S3 or other object storage backend.
 
 ---
 
 ## Changelog
+
+### September 2026, second round
+
+- **New dashboard design**: a dark navigation rail (a bottom tab bar on phones), an overview with an uploads chart and a storage-by-type chart, colour-coded projects, a ⌘K command palette, drag-and-drop uploads anywhere on a project page with a live per-file progress tray, a file preview drawer with share links, folder filters, gallery and list views, project settings (rename, public access, keys, delete), an account page, a new sign-in screen, and a new logo and icons.
+- **Read-only keys**: every project gets a download-only key alongside its upload key, with its own regenerate endpoint.
+- **Streaming files**: uploads and downloads stream to and from disk (a 400 MB file uses about 24 MB of server memory), with range requests, ETags, `304 Not Modified`, and cache headers. `MAX_FILE_SIZE` now also sets the request size limit.
+- **Sessions**: the legacy 7-day tokens and `/api/auth/*-legacy` endpoints are gone; refresh-token rotation is atomic, and tabs coordinate refreshes so two open tabs no longer sign each other out.
+- **Rate limits** are per client IP behind Traefik instead of shared by everyone.
+- **Deleting a project** now removes its files from disk.
+- **New endpoints**: `GET /api/stats`, `GET /api/files/recent`, `POST /api/projects/:id/regenerate-read-key`.
 
 ### September 2026
 
