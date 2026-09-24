@@ -10,6 +10,8 @@ interface AuthState {
   setTokens: (accessToken: string, refreshToken: string) => void;
   clearMustChangePassword: () => void;
   logout: () => void;
+  /** Re-read the session from localStorage after another tab changed it */
+  syncFromStorage: () => void;
   // Check if user has any auth (for dashboard access check)
   isAuthenticated: () => boolean;
 }
@@ -70,6 +72,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       localStorage.removeItem("token");
     }
     set({ accessToken: null, refreshToken: null, user: null });
+  },
+
+  syncFromStorage: () => {
+    set({
+      accessToken: localStorage.getItem("accessToken"),
+      refreshToken: localStorage.getItem("refreshToken"),
+      user: JSON.parse(localStorage.getItem("user") || "null"),
+    });
   },
 
   isAuthenticated: () => {

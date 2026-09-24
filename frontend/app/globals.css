@@ -2,110 +2,100 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * FileRunner design tokens.
+ * Structure is ink and white; colour comes from projects and file types.
+ * Values are space-separated RGB so Tailwind can apply opacity.
+ */
 @layer base {
   :root {
-    /* Canvas sits behind panels; card is the panel surface */
-    --background: 220 17% 97%;
-    --foreground: 225 14% 10%;
+    --canvas: 244 245 248;
+    --surface: 255 255 255;
+    --surface-2: 248 249 251;
+    --sunken: 236 238 243;
+    --ink: 21 22 27;
+    --ink-2: 74 78 92;
+    --ink-3: 118 123 138;
+    --line: 226 229 236;
+    --line-strong: 206 210 220;
 
-    --card: 0 0% 100%;
-    --card-foreground: 225 14% 10%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 225 14% 10%;
+    /* Chrome: the navigation rail stays dark in both themes */
+    --rail: 20 21 27;
+    --rail-ink: 236 238 243;
+    --rail-muted: 139 143 158;
 
-    /* Primary - petrol */
-    --primary: 185 81% 29%;
-    --primary-foreground: 0 0% 100%;
+    /* Primary action colour */
+    --brand: 47 91 255;
+    --brand-ink: 255 255 255;
+    --brand-soft: 234 239 255;
 
-    --secondary: 220 14% 95%;
-    --secondary-foreground: 225 14% 10%;
+    --good: 23 150 98;
+    --warn: 196 122 0;
+    --bad: 221 55 55;
 
-    /* Accent - neutral hover/selected surface */
-    --accent: 220 14% 94%;
-    --accent-foreground: 225 14% 10%;
+    /* Spectrum: project identities and chart series (validated categorical order) */
+    --c1: 42 120 214;
+    --c2: 235 104 52;
+    --c3: 27 175 122;
+    --c4: 237 161 0;
+    --c5: 232 123 164;
+    --c6: 0 131 0;
+    --c7: 74 58 167;
+    --c8: 227 73 72;
 
-    --muted: 220 14% 95%;
-    --muted-foreground: 220 9% 43%;
-
-    --success: 152 62% 30%;
-    --success-foreground: 0 0% 100%;
-
-    --warning: 32 92% 40%;
-    --warning-foreground: 0 0% 100%;
-
-    --destructive: 0 70% 48%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 220 13% 90%;
-    --input: 220 13% 86%;
-    --ring: 185 81% 29%;
-
-    /* Storage composition series (categorical, fixed order) */
-    --series-1: #2a78d6;
-    --series-2: #eb6834;
-    --series-3: #1baf7a;
-    --series-4: #eda100;
-    --series-5: #e87ba4;
-    --series-other: #a3a8b2;
-
-    --radius: 0.625rem;
+    --radius: 14px;
+    color-scheme: light;
   }
 
   .dark {
-    --background: 220 16% 6%;
-    --foreground: 220 14% 93%;
+    --canvas: 11 12 16;
+    --surface: 21 23 29;
+    --surface-2: 27 29 36;
+    --sunken: 16 17 22;
+    --ink: 238 240 245;
+    --ink-2: 178 182 196;
+    --ink-3: 128 133 149;
+    --line: 38 41 50;
+    --line-strong: 56 60 72;
 
-    --card: 216 14% 9%;
-    --card-foreground: 220 14% 93%;
-    --popover: 216 14% 10%;
-    --popover-foreground: 220 14% 93%;
+    --rail: 6 7 10;
+    --rail-ink: 236 238 243;
+    --rail-muted: 120 124 140;
 
-    --primary: 184 58% 50%;
-    --primary-foreground: 220 16% 6%;
+    --brand: 102 136 255;
+    --brand-ink: 10 12 20;
+    --brand-soft: 29 36 66;
 
-    --secondary: 216 12% 14%;
-    --secondary-foreground: 220 14% 93%;
+    --good: 52 199 132;
+    --warn: 240 170 40;
+    --bad: 242 98 98;
 
-    --accent: 216 12% 15%;
-    --accent-foreground: 220 14% 93%;
+    --c1: 57 135 229;
+    --c2: 217 89 38;
+    --c3: 25 158 112;
+    --c4: 201 133 0;
+    --c5: 213 81 129;
+    --c6: 36 155 36;
+    --c7: 144 133 233;
+    --c8: 230 103 103;
 
-    --muted: 216 12% 13%;
-    --muted-foreground: 218 9% 62%;
-
-    --success: 152 52% 48%;
-    --success-foreground: 220 16% 6%;
-
-    --warning: 38 88% 56%;
-    --warning-foreground: 220 16% 6%;
-
-    --destructive: 0 72% 60%;
-    --destructive-foreground: 220 16% 6%;
-
-    --border: 216 11% 17%;
-    --input: 216 11% 22%;
-    --ring: 184 58% 50%;
-
-    --series-1: #3987e5;
-    --series-2: #d95926;
-    --series-3: #199e70;
-    --series-4: #c98500;
-    --series-5: #d55181;
-    --series-other: #5b616b;
+    color-scheme: dark;
   }
 }
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-line;
   }
 
   html {
     -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
-    font-feature-settings: "cv11", "ss01", "calt" 1;
+    @apply bg-canvas font-sans text-ink antialiased;
+    font-feature-settings: "ss01", "cv05";
   }
 
   h1,
@@ -115,16 +105,22 @@
   }
 
   ::selection {
-    @apply bg-primary/20 text-foreground;
+    background: rgb(var(--brand) / 0.22);
   }
 
   :focus-visible {
-    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+    outline: 2px solid rgb(var(--brand));
+    outline-offset: 2px;
   }
 
-  /* Numbers in tables and stats line up */
   .tabular {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Thin, quiet scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--line-strong)) transparent;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -134,6 +130,23 @@
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
     }
+  }
+}
+
+@layer utilities {
+  /* A soft tint of a spectrum colour set in --tone (e.g. style={{"--tone": "var(--c3)"}}) */
+  .tone-bg {
+    background-color: rgb(var(--tone) / 0.12);
+  }
+  .tone-solid {
+    background-color: rgb(var(--tone));
+  }
+  .tone-text {
+    color: rgb(var(--tone));
+  }
+  .tone-ring {
+    box-shadow: 0 0 0 1px rgb(var(--tone) / 0.35);
   }
 }

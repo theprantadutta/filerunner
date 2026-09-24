@@ -1,34 +1,36 @@
 import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
+import { Globe2, LockKeyhole } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const badgeVariants = cva(
-  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium [&_svg]:h-3 [&_svg]:w-3",
-  {
-    variants: {
-      variant: {
-        default: "border-primary/20 bg-primary/10 text-primary",
-        secondary: "border-border bg-muted text-muted-foreground",
-        destructive: "border-destructive/20 bg-destructive/10 text-destructive",
-        outline: "text-foreground",
-        success: "border-success/20 bg-success/10 text-success",
-        warning: "border-warning/25 bg-warning/10 text-warning",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-    },
-  }
-);
-
-export interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {}
-
-function Badge({ className, variant, ...props }: BadgeProps) {
+/** Small rounded label. Pass --tone via style for spectrum colours. */
+export function Chip({
+  className,
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLSpanElement>) {
   return (
-    <div className={cn(badgeVariants({ variant }), className)} {...props} />
+    <span
+      className={cn(
+        "inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold [&_svg]:h-3.5 [&_svg]:w-3.5",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </span>
   );
 }
 
-export { Badge, badgeVariants };
+export function VisibilityChip({ isPublic, className }: { isPublic: boolean; className?: string }) {
+  return isPublic ? (
+    <Chip className={cn("bg-good/10 text-good", className)}>
+      <Globe2 />
+      Public
+    </Chip>
+  ) : (
+    <Chip className={cn("bg-sunken text-ink-2", className)}>
+      <LockKeyhole />
+      Private
+    </Chip>
+  );
+}

@@ -1,34 +1,32 @@
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform] duration-150 active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0",
+  "inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-full font-semibold transition-[background-color,color,box-shadow,transform,opacity] duration-150 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-45 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default:
-          "bg-primary text-primary-foreground shadow-panel hover:bg-primary/90",
-        destructive:
-          "bg-destructive text-destructive-foreground shadow-panel hover:bg-destructive/90",
-        outline:
-          "border border-input bg-card text-foreground shadow-panel hover:bg-accent hover:text-accent-foreground",
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/70",
-        ghost:
-          "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+        primary: "bg-ink text-canvas hover:bg-ink/85",
+        brand: "bg-brand text-brand-ink hover:bg-brand/90",
+        soft: "bg-sunken text-ink hover:bg-line",
+        outline: "border border-line-strong bg-surface text-ink hover:border-ink-3 hover:bg-surface-2",
+        ghost: "text-ink-2 hover:bg-sunken hover:text-ink",
+        danger: "bg-bad text-white hover:bg-bad/90",
+        "danger-soft": "bg-bad/10 text-bad hover:bg-bad/15",
       },
       size: {
-        default: "h-9 px-3.5",
-        sm: "h-8 rounded-md px-2.5 text-[13px]",
-        lg: "h-10 rounded-md px-5",
-        icon: "h-9 w-9",
+        sm: "h-8 px-3.5 text-[13px] [&_svg]:h-3.5 [&_svg]:w-3.5",
+        md: "h-10 px-4 text-sm [&_svg]:h-4 [&_svg]:w-4",
+        lg: "h-12 px-6 text-[15px] [&_svg]:h-[18px] [&_svg]:w-[18px]",
+        icon: "h-10 w-10 [&_svg]:h-[18px] [&_svg]:w-[18px]",
+        "icon-sm": "h-8 w-8 [&_svg]:h-4 [&_svg]:w-4",
       },
     },
     defaultVariants: {
-      variant: "default",
-      size: "default",
+      variant: "primary",
+      size: "md",
     },
   }
 );
@@ -36,20 +34,22 @@ const buttonVariants = cva(
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
-  asChild?: boolean;
+  loading?: boolean;
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  // asChild is accepted for API compatibility but not forwarded to the DOM
-  ({ className, variant, size, asChild, ...props }, ref) => {
-    return (
-      <button
-        className={cn(buttonVariants({ variant, size, className }))}
-        ref={ref}
-        {...props}
-      />
-    );
-  }
+  ({ className, variant, size, loading = false, disabled, children, ...props }, ref) => (
+    <button
+      ref={ref}
+      className={cn(buttonVariants({ variant, size, className }))}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...props}
+    >
+      {loading && <Loader2 className="animate-spin" />}
+      {children}
+    </button>
+  )
 );
 Button.displayName = "Button";
 

@@ -1,17 +1,23 @@
 import type { Metadata, Viewport } from "next";
-import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
+import { Bricolage_Grotesque, Hanken_Grotesk, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "sonner";
 
-const sans = Instrument_Sans({
+const display = Bricolage_Grotesque({
+  subsets: ["latin"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+const sans = Hanken_Grotesk({
   subsets: ["latin"],
   variable: "--font-sans",
   display: "swap",
 });
 
-const mono = JetBrains_Mono({
+const mono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
   display: "swap",
@@ -22,18 +28,18 @@ export const metadata: Metadata = {
     default: "FileRunner",
     template: "%s – FileRunner",
   },
-  description: "Self-hostable file management and CDN platform",
+  description: "Self-hosted file storage and CDN",
   applicationName: "FileRunner",
   appleWebApp: {
     title: "FileRunner",
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
   },
 };
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#F5F6F8" },
-    { media: "(prefers-color-scheme: dark)", color: "#0D0F12" },
+    { media: "(prefers-color-scheme: light)", color: "#F4F5F8" },
+    { media: "(prefers-color-scheme: dark)", color: "#0B0C10" },
   ],
 };
 
@@ -46,29 +52,22 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${sans.variable} ${mono.variable}`}
+      className={`${display.variable} ${sans.variable} ${mono.variable}`}
     >
-      <body className="font-sans">
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
+      <body>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <Providers>{children}</Providers>
           <Toaster
-            position="bottom-right"
-            expand={false}
-            closeButton
+            position="top-center"
             toastOptions={{
-              duration: 4000,
               classNames: {
                 toast:
-                  "!font-sans !rounded-lg !border !border-border !bg-popover !text-popover-foreground !shadow-float",
-                description: "!text-muted-foreground",
-                success: "[&_[data-icon]]:!text-success",
-                error: "[&_[data-icon]]:!text-destructive",
-                warning: "[&_[data-icon]]:!text-warning",
+                  "!rounded-2xl !border !border-line !bg-surface !text-ink !shadow-pop !font-sans !gap-3 !py-3.5",
+                title: "!font-semibold",
+                description: "!text-ink-3",
+                success: "[&_[data-icon]]:!text-good",
+                error: "[&_[data-icon]]:!text-bad",
+                warning: "[&_[data-icon]]:!text-warn",
               },
             }}
           />
