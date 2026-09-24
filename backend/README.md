@@ -21,14 +21,12 @@ High-performance file management API built with Rust and Axum.
 
 ## Quick Start
 
-### Using Docker (Recommended)
+### Using Docker
 
-1. From the root directory, run:
+From the repository root, see "Running FileRunner" in the main README:
 ```bash
-docker-compose up -d
+docker compose up -d --build
 ```
-
-2. The API will be available at `http://localhost:8000`
 
 ### Local Development
 

@@ -13,281 +13,71 @@ A production-ready, self-hostable file management and CDN platform built with Ru
 
 ## Architecture
 
-- **Backend**: Rust with Axum framework
-- **Frontend**: Next.js 15 with TypeScript
+- **Backend**: Rust with Axum
+- **Frontend**: Next.js 16 with TypeScript
 - **Database**: PostgreSQL
 - **Storage**: Local filesystem (S3-compatible storage coming soon)
 
-## Quick Start
+## Running FileRunner
 
-### Option 1: Quick Deploy (Recommended)
+FileRunner runs from this repository with Docker Compose. The images are built on the server from the checked-out source; nothing is pulled from a registry.
 
-Create a `docker-compose.yml` file on your server:
+| Service | Address |
+|---------|---------|
+| Frontend | `https://files.pranta.dev` |
+| Backend API | `https://filerunner.pranta.dev/api` |
 
-**With included PostgreSQL database:**
+Both services join the external `proxy` network, where Traefik terminates HTTPS, and the backend reaches the shared `postgres` container on that network. The hostnames live in the Traefik labels in `compose.yml`.
 
-```yaml
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: filerunner
-      POSTGRES_PASSWORD: your_secure_password_here
-      POSTGRES_DB: filerunner
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U filerunner"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+### First install
 
-  backend:
-    image: theprantadutta/filerunner-backend:latest
-    environment:
-      DATABASE_URL: postgresql://filerunner:your_secure_password_here@postgres:5432/filerunner
-      JWT_SECRET: ${JWT_SECRET}  # required: openssl rand -hex 32
-      CORS_ORIGINS: http://localhost
-      ADMIN_EMAIL: admin@example.com
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}  # required on first start: 12+ characters
-    ports:
-      - "8000:8000"
-    volumes:
-      - file_storage:/app/storage
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  frontend:
-    image: theprantadutta/filerunner-frontend:latest
-    environment:
-      API_URL: http://localhost:8000/api
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-
-volumes:
-  postgres_data:
-  file_storage:
-```
-
-**With external PostgreSQL database:**
-
-```yaml
-services:
-  backend:
-    image: theprantadutta/filerunner-backend:latest
-    environment:
-      DATABASE_URL: postgresql://user:password@your-db-host:5432/filerunner
-      JWT_SECRET: ${JWT_SECRET}  # required: openssl rand -hex 32
-      CORS_ORIGINS: http://localhost
-      ADMIN_EMAIL: admin@example.com
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}  # required on first start: 12+ characters
-    ports:
-      - "8000:8000"
-    volumes:
-      - file_storage:/app/storage
-
-  frontend:
-    image: theprantadutta/filerunner-frontend:latest
-    environment:
-      API_URL: http://localhost:8000/api
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-
-volumes:
-  file_storage:
-```
-
-Then run:
-```bash
-docker-compose up -d
-```
-
-Access the application at:
-- Frontend: **http://localhost:3000**
-- Backend API: **http://localhost:8000**
-
-### Option 2: Clone Repository
-
-For more configuration options (nginx reverse proxy, HTTPS with Traefik, etc.):
-
-#### Prerequisites
-
-- Docker and Docker Compose
-- Rust 1.75+ (for development)
-- Node.js 18+ (for frontend development)
-
-#### Running with Docker
-
-1. Clone the repository:
 ```bash
 git clone https://github.com/theprantadutta/filerunner.git
 cd filerunner
-```
 
-2. Create environment file:
-```bash
 cp .env.example .env
+# Fill in DATABASE_URL, JWT_SECRET (openssl rand -hex 32), ADMIN_EMAIL, ADMIN_PASSWORD
 
-# IMPORTANT: Edit .env and change these values:
-# - POSTGRES_PASSWORD
-# - JWT_SECRET (generate with: openssl rand -base64 32)
-# - ADMIN_PASSWORD
+# Create the database once, in the shared Postgres
+docker exec -it postgres psql -U postgres -c "CREATE DATABASE filerunner;"
+
+# Create the volume for uploaded files once
+docker volume create filerunner_file_storage
+
+docker compose up -d --build
 ```
 
-**Security Note:**
-- `.env` files contain secrets and are **NOT tracked in git**
-- Only `.env.example` files are committed (safe templates)
-- See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) for detailed instructions
+The backend runs database migrations on startup and creates the admin account from `ADMIN_EMAIL` and `ADMIN_PASSWORD` the first time. Sign in at the frontend and set a new password when asked.
 
-3. Start the services:
+### Updating
+
 ```bash
-docker-compose up -d
+git pull origin master
+docker compose up -d --build
 ```
 
-4. Access the application at: **http://localhost/**
+### Everyday commands
 
-   The admin user is created automatically on first startup. You'll be prompted to change the password on first login.
-
-### Deployment Options
-
-FileRunner supports multiple deployment configurations:
-
-| Method | Command | Access URL | Use Case |
-|--------|---------|------------|----------|
-| **HTTP** | `docker-compose up -d` | `http://localhost/` | Development, internal networks |
-| **HTTPS** | `docker-compose -f docker-compose.ssl.yml up -d` | `https://your-domain.com/` | Production with auto-SSL |
-
-#### HTTP Deployment (Default)
-
-Uses nginx as reverse proxy on port 80:
 ```bash
-docker-compose up -d
-# Access at http://localhost/
+docker compose logs -f filerunner-backend
+docker compose logs -f filerunner-frontend
+docker compose restart filerunner-backend
+docker compose down
 ```
 
-#### HTTPS Deployment (Production)
+### Local development
 
-Uses Traefik with automatic Let's Encrypt SSL certificates:
-
-1. Configure your `.env` file:
-```env
-DOMAIN=files.yourdomain.com
-LETSENCRYPT_EMAIL=admin@yourdomain.com
-CORS_ORIGINS=https://files.yourdomain.com
-API_URL=https://files.yourdomain.com/api
-
-# Optional: Traefik dashboard auth (generate with: htpasswd -nb admin yourpassword)
-TRAEFIK_DASHBOARD_AUTH=admin:$$apr1$$...
-```
-
-2. Ensure your domain points to your server's IP address
-
-3. Start with SSL:
 ```bash
-docker-compose -f docker-compose.ssl.yml up -d
-```
-
-4. Access at: `https://your-domain.com/`
-   - Traefik dashboard: `https://traefik.your-domain.com/` (if configured)
-
-#### External Nginx (Alternative)
-
-If you prefer to use your own nginx installation, see the `nginx/` directory for configuration examples:
-- `nginx/nginx.conf` - HTTP configuration
-- `nginx/nginx-ssl.conf` - HTTPS with your own certificates
-- `nginx/nginx-letsencrypt.conf` - HTTPS with certbot
-- `nginx/README.md` - Detailed setup instructions
-
-#### Subpath Deployment
-
-To deploy FileRunner under a subpath (e.g., `https://example.com/filerunner/`), you need to build the frontend with `NEXT_PUBLIC_BASE_PATH`:
-
-1. Create a `docker-compose.override.yml`:
-```yaml
-services:
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_BASE_PATH: /filerunner
-    environment:
-      API_URL: https://example.com/filerunner-api
-```
-
-2. Configure nginx to proxy both frontend and backend:
-```nginx
-# Backend API
-location /filerunner-api/ {
-    rewrite ^/filerunner-api/?(.*)$ /api/$1 break;
-    proxy_pass http://localhost:8000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
+# Backend (needs a local Postgres)
+cd backend
+cp .env.example .env   # set DATABASE_URL and JWT_SECRET
+cargo run              # http://localhost:8000
 
 # Frontend
-location /filerunner/ {
-    rewrite ^/filerunner/?(.*)$ /$1 break;
-    proxy_pass http://localhost:3000;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "Upgrade";
-}
+cd frontend
+npm install
+npm run dev            # http://localhost:3000, talks to http://localhost:8000/api
 ```
-
-3. Build and start:
-```bash
-docker-compose up -d --build
-```
-
-> **Note:** `NEXT_PUBLIC_BASE_PATH` is a **build-time** variable. You must rebuild the frontend image whenever you change it.
-
-### Using an Existing Database
-
-If you want to use an existing PostgreSQL database:
-
-**Option 1** - Update `DATABASE_URL` in docker-compose.yml:
-```yaml
-DATABASE_URL: postgresql://your_user:your_pass@your_host:5432/your_db
-```
-
-**Option 2** - Run without Docker's postgres service:
-```bash
-# Comment out 'postgres' service in docker-compose.yml
-# Update .env with your database credentials
-```
-
-**Note:** Migrations run automatically on startup.
-
-### Development Setup
-
-#### Backend
-
-```bash
-cd backend
-cargo build
-cargo run
-```
-
-#### Database Migrations
-
-```bash
-cd backend
-sqlx migrate run
-```
-
----
 
 ## API Documentation
 
@@ -1369,54 +1159,25 @@ Please provide working code or curl commands with my actual credentials filled i
 
 ## Environment Variables
 
-**Important:** Never commit `.env` files to git! Only `.env.example` files are tracked.
-
-### Quick Setup
-
-```bash
-cp .env.example .env
-
-# Generate secure JWT secret
-openssl rand -base64 32
-```
-
-### Required Variables
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `POSTGRES_PASSWORD` | Database password | `secure_password_here` |
-| `JWT_SECRET` | Token signing key. Required: 32+ random characters; the server refuses example values | `openssl rand -hex 32` |
-| `ADMIN_PASSWORD` | Initial admin password. Required on first start: 12+ characters, not a default value | (your own) |
-
-### File Storage Variables
+The backend reads `.env` (see `.env.example`). Never commit `.env`; only `.env.example` is tracked.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `STORAGE_PATH` | File storage directory | `/app/storage` |
-| `MAX_FILE_SIZE` | Maximum upload size in bytes | `104857600` (100MB) |
+| `DATABASE_URL` | PostgreSQL connection string | required |
+| `JWT_SECRET` | Signs login sessions. 32+ random characters; the server refuses example values. Generate with `openssl rand -hex 32` | required |
+| `CORS_ORIGINS` | Comma-separated frontend addresses allowed to call the API | `http://localhost:3000` |
+| `ADMIN_EMAIL` | First admin account, created on first startup | `admin@example.com` |
+| `ADMIN_PASSWORD` | First admin password. 12+ characters, not a default value. Only used when no admin exists yet | required on first start |
+| `ALLOW_SIGNUP` | Let anyone create an account | `false` |
+| `MAX_FILE_SIZE` | Largest upload in bytes | `524288000` (500 MB) |
+| `STORAGE_PATH` | Where files are stored inside the container | `./storage` (`/app/storage` in Docker) |
+| `ACCESS_TOKEN_EXPIRY_MINUTES` | Access token lifetime | `15` |
+| `REFRESH_TOKEN_EXPIRY_DAYS` | Refresh token lifetime | `7` |
+| `DB_MIN_CONNECTIONS` / `DB_MAX_CONNECTIONS` | Database pool size | `2` / `10` |
+| `RUST_LOG` | Log level | `filerunner_backend=debug,tower_http=debug` |
+| `FILE_STORAGE_VOLUME` | Docker volume holding uploaded files (compose only) | `filerunner_file_storage` |
 
-### HTTP vs HTTPS Configuration
-
-**For HTTP deployment** (default):
-```env
-CORS_ORIGINS=http://localhost
-API_URL=http://localhost:8000/api
-```
-
-**For HTTPS deployment**:
-```env
-DOMAIN=files.yourdomain.com
-LETSENCRYPT_EMAIL=admin@yourdomain.com
-CORS_ORIGINS=https://files.yourdomain.com
-API_URL=https://files.yourdomain.com/api
-TRAEFIK_DASHBOARD_AUTH=admin:$$apr1$$...  # Optional
-```
-
-> **Note:** Use `API_URL` (not `NEXT_PUBLIC_API_URL`). This is read at runtime, allowing you to configure the backend URL without rebuilding the Docker image.
-
-### All Variables
-
-See `.env.example` for complete list with descriptions, or [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) for detailed guide.
+The frontend's `API_URL` is set in `compose.yml` and read at runtime, so changing it needs a restart, not a rebuild.
 
 ---
 
@@ -1473,20 +1234,6 @@ FileRunner implements multiple security measures:
 
 ---
 
-## Project Status
-
-- Phase 1: Backend Foundation (Complete)
-- Phase 2: Frontend (Complete)
-- Phase 3: CLI Tool (Planned)
-
----
-
 ## License
 
 MIT
-
----
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.

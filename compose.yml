@@ -1,0 +1,66 @@
+services:
+  filerunner-backend:
+    image: filerunner-backend
+    container_name: filerunner-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    volumes:
+      - file_storage:/app/storage
+    restart: unless-stopped
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.filerunner-api.rule=Host(`filerunner.pranta.dev`)"
+      - "traefik.http.routers.filerunner-api.entrypoints=websecure"
+      - "traefik.http.routers.filerunner-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.filerunner-api.loadbalancer.server.port=8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  filerunner-frontend:
+    image: filerunner-frontend
+    container_name: filerunner-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      # Read at runtime, so changing it needs a restart, not a rebuild
+      API_URL: https://filerunner.pranta.dev/api
+    restart: unless-stopped
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.filerunner.rule=Host(`files.pranta.dev`)"
+      - "traefik.http.routers.filerunner.entrypoints=websecure"
+      - "traefik.http.routers.filerunner.tls.certresolver=letsencrypt"
+      - "traefik.http.services.filerunner.loadbalancer.server.port=3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/config"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      filerunner-backend:
+        condition: service_healthy
+
+volumes:
+  # Uploaded files. External so compose never creates a fresh, empty volume by mistake:
+  # if the name doesn't match an existing volume, `up` stops with an error instead.
+  # First install only: docker volume create filerunner_file_storage
+  file_storage:
+    external: true
+    name: ${FILE_STORAGE_VOLUME:-filerunner_file_storage}
+
+networks:
+  proxy:
+    external: true

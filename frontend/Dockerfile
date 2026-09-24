@@ -37,5 +37,7 @@ USER nextjs
 EXPOSE 3000
 
 ENV PORT=3000
+# Listen on all interfaces; otherwise Next binds to the container hostname and localhost healthchecks fail
+ENV HOSTNAME=0.0.0.0
 
 CMD ["node", "server.js"]

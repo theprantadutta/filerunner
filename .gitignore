@@ -1,7 +1,5 @@
 # Rust
 /backend/target/
-/cli/target/
-/cli/Cargo.lock
 
 # Node.js / Next.js
 /frontend/node_modules/

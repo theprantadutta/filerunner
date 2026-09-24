@@ -244,10 +244,6 @@ npm start
 - Verify API key is correct
 - Check browser console for errors
 
-## Contributing
-
-See main CONTRIBUTING.md in the root directory.
-
 ## License
 
 MIT

@@ -142,49 +142,11 @@ Before deploying FileRunner to production, complete this checklist:
 
 ## Secure Deployment
 
-FileRunner provides two deployment options with built-in reverse proxy:
+FileRunner runs behind the server's shared Traefik (see `compose.yml`):
 
-### Option 1: HTTPS with Traefik (Recommended)
-
-Uses `docker-compose.ssl.yml` with automatic Let's Encrypt certificates:
-
-```bash
-# Configure .env
-DOMAIN=files.yourdomain.com
-LETSENCRYPT_EMAIL=admin@yourdomain.com
-CORS_ORIGINS=https://files.yourdomain.com
-NEXT_PUBLIC_API_URL=https://files.yourdomain.com/api
-
-# Deploy
-docker-compose -f docker-compose.ssl.yml up -d
-```
-
-**Security features included:**
-- Automatic HTTPS with Let's Encrypt
-- HTTP to HTTPS redirect
-- Certificate auto-renewal
-- Traefik dashboard with basic auth (optional)
-- No direct port exposure (except 80/443)
-
-### Option 2: HTTP with Nginx (Development/Internal)
-
-Uses `docker-compose.yml` with nginx on port 80:
-
-```bash
-docker-compose up -d
-# Access at http://localhost/
-```
-
-**Note:** Only use HTTP for development or internal networks. Add your own SSL termination for production.
-
-### Option 3: External Nginx
-
-For custom nginx configurations, see `nginx/` directory:
-- `nginx/nginx.conf` - HTTP configuration
-- `nginx/nginx-ssl.conf` - HTTPS with your own certs
-- `nginx/nginx-letsencrypt.conf` - HTTPS with certbot
-- `nginx/ssl-params.conf` - Modern TLS settings
-- `nginx/README.md` - Setup instructions
+- HTTPS with Let's Encrypt certificates, issued and renewed by Traefik
+- No ports published by the containers; Traefik reaches them over the `proxy` network
+- Secrets live in `.env`, which is gitignored; the backend refuses to start with a missing or example `JWT_SECRET`
 
 ### Security Headers
 
@@ -237,7 +199,7 @@ Built-in rate limiting protects against brute-force attacks:
    - Take snapshot/backup
 
 2. **Investigation:**
-   - Check Docker logs: `docker-compose logs`
+   - Check Docker logs: `docker compose logs`
    - Review PostgreSQL logs
    - Analyze access patterns
    - Identify entry point
