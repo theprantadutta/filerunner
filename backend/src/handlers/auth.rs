@@ -463,6 +463,87 @@ pub async fn change_password(
     }))
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct DeleteAccountRequest {
+    pub password: String,
+}
+
+/// Delete the signed-in account with all its projects and files. Needs the password.
+pub async fn delete_account(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Json(payload): Json<DeleteAccountRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let user = sqlx::query_as::<_, User>(
+        "SELECT id, email, password_hash, role, created_at, must_change_password FROM users WHERE id = $1",
+    )
+    .bind(auth_user.id)
+    .fetch_one(&state.pool)
+    .await?;
+
+    let is_valid = verify_password(&payload.password, &user.password_hash)
+        .map_err(|e| AppError::InternalError(format!("Password verification failed: {e}")))?;
+    if !is_valid {
+        return Err(AppError::BadRequest("Password is incorrect".to_string()));
+    }
+
+    // Without an admin the server recreates one from ADMIN_PASSWORD on the next start,
+    // and refuses to start if that isn't set; don't let the last admin lock it out
+    if matches!(user.role, UserRole::Admin) {
+        let admins =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE role = 'admin'")
+                .fetch_one(&state.pool)
+                .await?;
+        if admins <= 1 {
+            return Err(AppError::BadRequest(
+                "This is the only admin account, so it can't be deleted".to_string(),
+            ));
+        }
+    }
+
+    let project_ids = sqlx::query_scalar::<_, Uuid>("SELECT id FROM projects WHERE user_id = $1")
+        .bind(user.id)
+        .fetch_all(&state.pool)
+        .await?;
+
+    // Projects, files, folders, and sessions cascade from the user row
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(user.id)
+        .execute(&state.pool)
+        .await?;
+
+    for project_id in project_ids {
+        let dir = std::path::PathBuf::from(&state.config.storage_path).join(project_id.to_string());
+        if tokio::fs::try_exists(&dir).await.unwrap_or(false)
+            && let Err(e) = tokio::fs::remove_dir_all(&dir).await
+        {
+            tracing::warn!(
+                "Deleted account {} but could not remove {}: {e}",
+                user.id,
+                dir.display()
+            );
+        }
+    }
+
+    tracing::info!("Account {} deleted", user.id);
+    Ok(Json(serde_json::json!({ "message": "Account deleted" })))
+}
+
+/// Delete refresh tokens past their expiry. They are rejected anyway, so this only
+/// keeps the table from growing forever.
+pub async fn prune_expired_sessions(pool: &PgPool) {
+    match sqlx::query("DELETE FROM refresh_tokens WHERE expires_at < NOW()")
+        .execute(pool)
+        .await
+    {
+        Ok(result) if result.rows_affected() > 0 => {
+            tracing::info!("Pruned {} expired sessions", result.rows_affected());
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!("Could not prune expired sessions: {e}"),
+    }
+}
+
 // Admin function to create admin user on startup
 pub async fn ensure_admin_user(pool: &PgPool, email: &str, password: &str) -> Result<()> {
     // Check if admin already exists

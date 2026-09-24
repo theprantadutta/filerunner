@@ -28,12 +28,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use config::Config;
 use handlers::{
     auth::{
-        change_password, ensure_admin_user, get_current_user, login, logout, logout_all,
-        refresh_token, register,
+        change_password, delete_account, ensure_admin_user, get_current_user, login, logout,
+        logout_all, prune_expired_sessions, refresh_token, register,
     },
     file::{
-        bulk_delete_files, delete_file, delete_folder_files, download_file, list_project_files,
-        recent_files, upload_file,
+        bulk_delete_files, delete_file, delete_folder_files, delete_project_folder, download_file,
+        list_project_files, recent_files, upload_file,
     },
     folder::{create_folder, list_folders, update_folder_visibility},
     project::{
@@ -89,6 +89,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create storage directory if it doesn't exist
     tokio::fs::create_dir_all(&config.storage_path).await?;
     tracing::info!("Storage directory ready: {}", config.storage_path);
+
+    // Drop expired sessions now and every hour after
+    let prune_pool = pool.clone();
+    tokio::spawn(async move {
+        let mut every_hour = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+        loop {
+            every_hour.tick().await;
+            prune_expired_sessions(&prune_pool).await;
+        }
+    });
 
     let app_state = AppState {
         pool,
@@ -165,6 +175,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/auth/change-password", put(change_password))
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/logout-all", post(logout_all))
+        .route("/api/auth/account", delete(delete_account))
         // Project routes (protected)
         .route("/api/projects", post(create_project))
         .route("/api/projects", get(list_projects))
@@ -183,6 +194,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/stats", get(get_stats))
         .route("/api/projects/{id}/files", get(list_project_files))
         .route("/api/projects/{id}/empty", delete(empty_project))
+        .route("/api/projects/{id}/folders", delete(delete_project_folder))
         // Folder routes (protected)
         .route("/api/folders", post(create_folder))
         .route("/api/folders", get(list_folders))

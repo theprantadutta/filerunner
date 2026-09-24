@@ -72,6 +72,149 @@ impl Drop for TempUpload {
     }
 }
 
+/// Remove directories left empty, from `dir` up to (not including) the project's own folder
+async fn remove_empty_dirs(mut dir: PathBuf, project_dir: &FsPath) {
+    while dir.starts_with(project_dir) && dir != project_dir {
+        // remove_dir only succeeds on empty directories, so this stops at the first one in use
+        if fs::remove_dir(&dir).await.is_err() {
+            break;
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+}
+
+fn folder_dir(storage_path: &str, project_id: Uuid, folder_path: &str) -> (PathBuf, PathBuf) {
+    let project_dir = PathBuf::from(storage_path).join(project_id.to_string());
+    let mut dir = project_dir.clone();
+    for segment in folder_path.split('/').filter(|s| !s.is_empty()) {
+        dir.push(segment);
+    }
+    (dir, project_dir)
+}
+
+/// After files are deleted, drop folders that no longer hold any file, from the
+/// database and from disk. Best effort: failures are logged, never returned.
+pub(crate) async fn prune_empty_folders(state: &AppState, folder_ids: &[Uuid]) {
+    if folder_ids.is_empty() {
+        return;
+    }
+    let emptied = sqlx::query_as::<_, (Uuid, String)>(
+        r#"
+        DELETE FROM folders f
+        WHERE f.id = ANY($1)
+          AND NOT EXISTS (SELECT 1 FROM files WHERE folder_id = f.id)
+        RETURNING f.project_id, f.path
+        "#,
+    )
+    .bind(folder_ids)
+    .fetch_all(&state.pool)
+    .await;
+
+    match emptied {
+        Ok(rows) => {
+            for (project_id, path) in rows {
+                let (dir, project_dir) = folder_dir(&state.config.storage_path, project_id, &path);
+                remove_empty_dirs(dir, &project_dir).await;
+            }
+        }
+        Err(e) => tracing::warn!("Could not prune empty folders: {e}"),
+    }
+}
+
+/// Delete a folder, every folder nested under it, and all their files, from the
+/// database and from disk. Returns how many files were deleted.
+pub(crate) async fn delete_folder_tree(
+    state: &AppState,
+    project_id: Uuid,
+    folder_path: &str,
+) -> Result<u64> {
+    validate_folder_path(folder_path)?;
+    let folder_path = folder_path.trim_end_matches('/');
+
+    // starts_with rather than LIKE: folder names may contain "_", a LIKE wildcard
+    let files = sqlx::query_as::<_, File>(
+        r#"
+        SELECT f.id, f.project_id, f.folder_id, f.original_name, f.stored_name, f.file_path,
+               f.size, f.mime_type, f.upload_date
+        FROM files f
+        JOIN folders fol ON fol.id = f.folder_id
+        WHERE fol.project_id = $1
+          AND (fol.path = $2 OR starts_with(fol.path, $2 || '/'))
+        "#,
+    )
+    .bind(project_id)
+    .bind(folder_path)
+    .fetch_all(&state.pool)
+    .await?;
+
+    for file in &files {
+        if let Err(e) = fs::remove_file(&file.file_path).await
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!("Failed to delete file {}: {e}", file.file_path);
+        }
+    }
+
+    let ids: Vec<Uuid> = files.iter().map(|f| f.id).collect();
+    sqlx::query("DELETE FROM files WHERE id = ANY($1)")
+        .bind(&ids)
+        .execute(&state.pool)
+        .await?;
+    sqlx::query(
+        "DELETE FROM folders WHERE project_id = $1 AND (path = $2 OR starts_with(path, $2 || '/'))",
+    )
+    .bind(project_id)
+    .bind(folder_path)
+    .execute(&state.pool)
+    .await?;
+
+    // Every file under this directory had a database row, so the whole tree can go
+    let (dir, project_dir) = folder_dir(&state.config.storage_path, project_id, folder_path);
+    if fs::try_exists(&dir).await.unwrap_or(false)
+        && let Err(e) = fs::remove_dir_all(&dir).await
+    {
+        tracing::warn!("Failed to remove folder directory {}: {e}", dir.display());
+    }
+    if let Some(parent) = dir.parent() {
+        remove_empty_dirs(parent.to_path_buf(), &project_dir).await;
+    }
+
+    Ok(files.len() as u64)
+}
+
+#[derive(Deserialize)]
+pub struct FolderQuery {
+    pub path: String,
+}
+
+/// Delete a folder and everything in it, from the dashboard (JWT, project owner)
+pub async fn delete_project_folder(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(project_id): Path<Uuid>,
+    Query(query): Query<FolderQuery>,
+) -> Result<Json<serde_json::Value>> {
+    let owned = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1 AND user_id = $2)",
+    )
+    .bind(project_id)
+    .bind(auth_user.id)
+    .fetch_one(&state.pool)
+    .await?;
+    if !owned {
+        return Err(AppError::NotFound("Project not found".to_string()));
+    }
+
+    let deleted_count = delete_folder_tree(&state, project_id, &query.path).await?;
+
+    Ok(Json(serde_json::json!({
+        "message": "Folder deleted",
+        "deleted_count": deleted_count
+    })))
+}
+
 pub async fn upload_file(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -611,6 +754,10 @@ pub async fn delete_file(
         .execute(&state.pool)
         .await?;
 
+    if let Some(folder_id) = file.folder_id {
+        prune_empty_folders(&state, &[folder_id]).await;
+    }
+
     Ok(Json(serde_json::json!({
         "message": "File deleted successfully"
     })))
@@ -645,69 +792,8 @@ pub async fn delete_folder_files(
     .await?
     .ok_or(AppError::Unauthorized)?;
 
-    let folder_path = &payload.folder_path;
-
-    validate_folder_path(folder_path)?;
-
-    // Get the folder for this project
-    let folder = sqlx::query_as::<_, Folder>(
-        "SELECT id, project_id, path, is_public, created_at FROM folders WHERE project_id = $1 AND path = $2",
-    )
-    .bind(project.id)
-    .bind(folder_path)
-    .fetch_optional(&state.pool)
-    .await?;
-
-    let mut deleted_count = 0;
-
-    if let Some(folder) = folder {
-        // Get all files in this folder
-        let files = sqlx::query_as::<_, File>(
-            "SELECT id, project_id, folder_id, original_name, stored_name, file_path, size, mime_type, upload_date FROM files WHERE folder_id = $1"
-        )
-        .bind(folder.id)
-        .fetch_all(&state.pool)
-        .await?;
-
-        // Delete each file from disk
-        for file in &files {
-            let file_path = PathBuf::from(&file.file_path);
-            if file_path.exists()
-                && let Err(e) = fs::remove_file(&file_path).await
-            {
-                tracing::warn!("Failed to delete file {}: {}", file_path.display(), e);
-            }
-            deleted_count += 1;
-        }
-
-        // Delete all files from database
-        sqlx::query("DELETE FROM files WHERE folder_id = $1")
-            .bind(folder.id)
-            .execute(&state.pool)
-            .await?;
-
-        // Delete the folder record
-        sqlx::query("DELETE FROM folders WHERE id = $1")
-            .bind(folder.id)
-            .execute(&state.pool)
-            .await?;
-
-        // Try to remove the physical folder directory
-        let mut storage_path = PathBuf::from(&state.config.storage_path);
-        storage_path.push(project.id.to_string());
-        for segment in folder_path.split('/') {
-            storage_path.push(segment);
-        }
-        if storage_path.exists()
-            && let Err(e) = fs::remove_dir_all(&storage_path).await
-        {
-            tracing::warn!(
-                "Failed to remove folder directory {}: {}",
-                storage_path.display(),
-                e
-            );
-        }
-    }
+    // Includes nested folders, so no file is left behind on disk or in the database
+    let deleted_count = delete_folder_tree(&state, project.id, &payload.folder_path).await?;
 
     Ok(Json(serde_json::json!({
         "message": "Folder files deleted successfully",
@@ -823,6 +909,14 @@ pub async fn bulk_delete_files(
         .bind(&file_ids)
         .execute(&state.pool)
         .await?;
+
+    let mut folder_ids: Vec<Uuid> = authorized_files
+        .iter()
+        .filter_map(|f| f.folder_id)
+        .collect();
+    folder_ids.sort();
+    folder_ids.dedup();
+    prune_empty_folders(&state, &folder_ids).await;
 
     Ok(Json(serde_json::json!({
         "message": "Files deleted successfully",

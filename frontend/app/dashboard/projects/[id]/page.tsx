@@ -110,6 +110,7 @@ export default function ProjectPage() {
   const [previewId, setPreviewId] = useState<string | null>(searchParams.get("file"));
   const [toDelete, setToDelete] = useState<FileMetadata | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [folderDeleteOpen, setFolderDeleteOpen] = useState(false);
 
   const changeView = (next: View) => {
     setView(next);
@@ -165,6 +166,20 @@ export default function ProjectPage() {
 
   // Upload destination follows the selected folder
   const uploadFolder = folder && folder !== ROOT ? folder : undefined;
+  const requestFolderDelete = () => {
+    if (!uploadFolder) return;
+    if (folderTreeCount > 0) {
+      setFolderDeleteOpen(true);
+      return;
+    }
+    // A folder with no files yet exists only in this page; just forget it
+    setPendingFolders((prev) => prev.filter((f) => f !== uploadFolder));
+    setFolder(null);
+  };
+  // Files in the selected folder and everything nested under it
+  const folderTreeCount = uploadFolder
+    ? allFiles.filter((f) => f.folder_path === uploadFolder || (f.folder_path ?? "").startsWith(`${uploadFolder}/`)).length
+    : 0;
   const startUpload = useCallback(
     (accepted: File[]) => {
       if (!p || accepted.length === 0) return;
@@ -197,6 +212,19 @@ export default function ProjectPage() {
       showToast.success(`Deleted ${file.original_name}`);
     },
     onError: (e) => showToast.error(apiError(e, "Couldn't delete the file")),
+  });
+
+  const deleteFolder = useMutation({
+    mutationFn: (path: string) => projectsApi.deleteFolder(projectId, path),
+    onSuccess: ({ data }, path) => {
+      invalidate();
+      setFolderDeleteOpen(false);
+      setFolder(null);
+      setSelected(new Set());
+      setPendingFolders((prev) => prev.filter((f) => f !== path && !f.startsWith(`${path}/`)));
+      showToast.success(`Deleted ${path} and ${pluralize(data.deleted_count, "file")}`);
+    },
+    onError: (e) => showToast.error(apiError(e, "Couldn't delete the folder")),
   });
 
   const deleteMany = useMutation({
@@ -419,9 +447,19 @@ export default function ProjectPage() {
             )}
 
             {uploadFolder && (
-              <p className="mb-4 text-sm text-ink-2">
-                New uploads go to <span className="font-mono font-medium text-ink">{uploadFolder}</span>.
-              </p>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-surface px-4 py-3 ring-1 ring-line">
+                <p className="text-sm text-ink-2">
+                  New uploads go to <span className="font-mono font-medium text-ink">{uploadFolder}</span>.
+                </p>
+                <Button
+                  variant="danger-soft"
+                  size="sm"
+                  onClick={requestFolderDelete}
+                >
+                  <Trash2 />
+                  Delete folder
+                </Button>
+              </div>
             )}
 
             {files.isLoading ? (
@@ -637,6 +675,17 @@ export default function ProjectPage() {
 
       <FilePreview file={previewFile} project={p} onOpenChange={(open) => !open && closePreview()} onDelete={setToDelete} />
 
+      <ConfirmDialog
+        open={folderDeleteOpen}
+        onOpenChange={setFolderDeleteOpen}
+        title={`Delete ${uploadFolder}?`}
+        description={`The folder, any folders inside it, and ${pluralize(folderTreeCount, "file")} will be deleted for good. Their links will stop working.`}
+        actionLabel="Delete folder"
+        onConfirm={() => uploadFolder && deleteFolder.mutate(uploadFolder)}
+        loading={deleteFolder.isPending}
+        confirmText={uploadFolder}
+        icon={<Trash2 />}
+      />
       <ConfirmDialog
         open={!!toDelete}
         onOpenChange={(open) => !open && setToDelete(null)}

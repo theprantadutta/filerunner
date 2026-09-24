@@ -237,6 +237,9 @@ export const authApi = {
     api.post<{ message: string }>("/auth/logout", { refresh_token: refreshToken }),
 
   logoutAll: () => api.post<{ message: string; revoked_count: number }>("/auth/logout-all"),
+
+  /** Deletes the account with all its projects and files */
+  deleteAccount: (password: string) => api.delete<{ message: string }>("/auth/account", { data: { password } }),
 };
 
 export const projectsApi = {
@@ -257,6 +260,10 @@ export const projectsApi = {
   regenerateReadKey: (id: string) => api.post<Project>(`/projects/${id}/regenerate-read-key`),
 
   listFiles: (id: string) => api.get<FileMetadata[]>(`/projects/${id}/files`),
+
+  /** Deletes a folder, its subfolders, and every file in them */
+  deleteFolder: (id: string, path: string) =>
+    api.delete<{ message: string; deleted_count: number }>(`/projects/${id}/folders`, { params: { path } }),
 
   emptyProject: (id: string) =>
     api.delete<{ message: string; deleted_count: number }>(`/projects/${id}/empty`),

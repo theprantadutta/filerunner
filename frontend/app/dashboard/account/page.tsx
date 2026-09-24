@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { LogOut, Monitor, Moon, ShieldAlert, Sun } from "lucide-react";
+import { LogOut, Monitor, Moon, ShieldAlert, Sun, UserX } from "lucide-react";
 import { authApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { showToast } from "@/lib/toast";
@@ -13,6 +13,8 @@ import { Page, PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/controls";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Field, PasswordInput } from "@/components/ui/input";
+import { Dialog, DialogActions, DialogContent, DialogHeader } from "@/components/ui/dialog";
 import { PasswordForm } from "@/components/shell/Dialogs";
 
 function Block({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
@@ -33,6 +35,28 @@ export default function AccountPage() {
   const { theme, setTheme } = useTheme();
   const { user, logout } = useAuthStore();
   const [confirmAll, setConfirmAll] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+
+  const deleteAccount = useMutation({
+    mutationFn: () => authApi.deleteAccount(deletePassword),
+    onSuccess: () => {
+      logout();
+      queryClient.clear();
+      showToast.success("Your account and all its files were deleted");
+      router.push("/login");
+    },
+    onError: (e) => setDeleteError(apiError(e, "Couldn't delete the account")),
+  });
+
+  const closeDelete = (open: boolean) => {
+    setDeleteOpen(open);
+    if (!open) {
+      setDeletePassword("");
+      setDeleteError("");
+    }
+  };
 
   const signOutEverywhere = useMutation({
     mutationFn: () => authApi.logoutAll(),
@@ -93,7 +117,53 @@ export default function AccountPage() {
             Sign out everywhere
           </Button>
         </Block>
+
+        <Block
+          title="Delete account"
+          description="Deletes this account, every project in it, and all their files. This can't be undone."
+        >
+          <Button variant="danger" onClick={() => setDeleteOpen(true)}>
+            <UserX />
+            Delete account
+          </Button>
+        </Block>
       </div>
+
+      <Dialog open={deleteOpen} onOpenChange={closeDelete}>
+        <DialogContent>
+          <DialogHeader
+            icon={<UserX />}
+            tone="danger"
+            title="Delete your account?"
+            description="Every project, key, and file in this account will be deleted for good, and all file links will stop working."
+          />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setDeleteError("");
+              if (deletePassword) deleteAccount.mutate();
+            }}
+          >
+            <Field label="Enter your password to confirm" htmlFor="delete-password" error={deleteError || undefined}>
+              <PasswordInput
+                id="delete-password"
+                autoComplete="current-password"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                autoFocus
+              />
+            </Field>
+            <DialogActions>
+              <Button type="button" variant="ghost" onClick={() => closeDelete(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="danger" disabled={!deletePassword} loading={deleteAccount.isPending}>
+                Delete account
+              </Button>
+            </DialogActions>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={confirmAll}

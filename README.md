@@ -279,6 +279,27 @@ Authorization: Bearer <jwt_token>
 
 ---
 
+#### Delete Account
+```http
+DELETE /api/auth/account
+Authorization: Bearer <jwt_token>
+Content-Type: application/json
+
+{
+  "password": "current_password"
+}
+```
+
+Deletes the account with every project, key, folder, file, and session in it, including the files on disk. Returns `{ "message": "Account deleted" }`.
+
+**Errors:**
+- `400` - Password is incorrect
+- `400` - This is the only admin account. Without an admin the server recreates one from `ADMIN_PASSWORD` on the next start, and won't start if that isn't set, so the last admin can't be deleted.
+
+**Sessions:** expired sessions are deleted automatically, at startup and every hour.
+
+---
+
 ### Projects
 
 #### Create Project
@@ -607,10 +628,10 @@ Content-Type: application/json
 
 ---
 
-#### Delete Folder (via API Key)
+#### Delete Folder (via Upload Key)
 ```http
 POST /api/folders/delete
-X-API-Key: <project_api_key>
+X-API-Key: <upload key>
 Content-Type: application/json
 
 {
@@ -626,7 +647,19 @@ Content-Type: application/json
 }
 ```
 
-**Note:** Deletes all files in the folder and the folder itself.
+**Note:** Deletes the folder, every folder nested under it (`images/avatars/2026`, ...), and all their files, from the database and from disk. The read-only key can't delete folders.
+
+---
+
+#### Delete Folder (Dashboard)
+```http
+DELETE /api/projects/:id/folders?path=images/avatars
+Authorization: Bearer <jwt_token>
+```
+
+Same as above, for the project's owner. Returns `{ "message": "Folder deleted", "deleted_count": 15 }`.
+
+**Empty folders:** deleting the last file in a folder (singly or in bulk) also removes the folder record and its now-empty directories. A folder that was made public explicitly loses that setting when it's emptied this way.
 
 ---
 
@@ -1350,6 +1383,14 @@ The frontend's `API_URL` is set in `compose.yml` and read at runtime, so changin
 ---
 
 ## Changelog
+
+### September 2026, third round
+
+- **Delete a folder from the dashboard**: select a folder and choose "Delete folder" (type its name to confirm). New endpoint `DELETE /api/projects/:id/folders`.
+- **Delete your account** from Account settings, confirmed with your password. New endpoint `DELETE /api/auth/account`. The only admin account can't be deleted.
+- **Folder deletes include nested folders.** Previously `POST /api/folders/delete` removed nested folders' files from disk but left their database rows, leaving broken files behind.
+- **Empty folders are cleaned up** after their last file is deleted, in the database and on disk.
+- **Expired sessions are pruned** at startup and every hour.
 
 ### September 2026, second round
 
