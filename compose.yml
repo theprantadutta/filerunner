@@ -14,16 +14,20 @@ services:
       - proxy
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
       - "traefik.http.routers.filerunner-api.rule=Host(`filerunner.pranta.dev`)"
       - "traefik.http.routers.filerunner-api.entrypoints=websecure"
       - "traefik.http.routers.filerunner-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.filerunner-api.loadbalancer.server.port=8000"
+    # Traefik only routes to a container once it reports healthy, so these checks gate HTTPS.
+    # 127.0.0.1, not localhost: inside the container localhost can resolve to IPv6 first,
+    # while the servers listen on IPv4.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 40s
+      start_period: 30s
 
   filerunner-frontend:
     image: filerunner-frontend
@@ -39,16 +43,17 @@ services:
       - proxy
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
       - "traefik.http.routers.filerunner.rule=Host(`files.pranta.dev`)"
       - "traefik.http.routers.filerunner.entrypoints=websecure"
       - "traefik.http.routers.filerunner.tls.certresolver=letsencrypt"
       - "traefik.http.services.filerunner.loadbalancer.server.port=3000"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/config"]
-      interval: 30s
-      timeout: 10s
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 40s
+      start_period: 30s
     depends_on:
       filerunner-backend:
         condition: service_healthy
