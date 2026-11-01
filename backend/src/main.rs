@@ -17,9 +17,7 @@ use sqlx::PgPool;
 use std::io::IsTerminal;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tower_governor::{
-    GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
-};
+use std::time::Duration;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -42,6 +40,7 @@ use handlers::{
     },
     stats::get_stats,
 };
+use middleware::rate_limit::{RateLimit, rate_limit};
 use middleware::{optional_auth, require_auth};
 
 #[derive(Clone)]
@@ -129,26 +128,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             header::RANGE,
         ]);
 
-    // Rate limits are per client IP. SmartIpKeyExtractor reads the address Traefik forwards
-    // (X-Forwarded-For / X-Real-IP), falling back to the peer address, so users behind the
-    // proxy each get their own budget. The backend must only be reachable through the proxy,
-    // otherwise clients could set these headers themselves.
+    // Rate limits are per client IP. Forwarded headers count only when the request comes
+    // from a private address (Traefik, or another container), so nobody can pick their own
+    // address by sending X-Forwarded-For; see middleware::client_ip.
 
     // Auth: bursts of 10, then one attempt every 5 seconds
-    let auth_rate_limit = GovernorConfigBuilder::default()
-        .per_second(5)
-        .burst_size(10)
-        .key_extractor(SmartIpKeyExtractor)
-        .finish()
-        .unwrap();
+    let auth_rate_limit = RateLimit::new(Duration::from_secs(5), 10, false);
 
-    // Uploads: bursts of 30, then one per second
-    let upload_rate_limit = GovernorConfigBuilder::default()
-        .per_second(1)
-        .burst_size(30)
-        .key_extractor(SmartIpKeyExtractor)
-        .finish()
-        .unwrap();
+    // Uploads: bursts of 30, then one per second. Services on the private network calling
+    // directly (an app's backend storing files for all of its users) are not limited.
+    let upload_rate_limit = RateLimit::new(Duration::from_secs(1), 30, true);
+
+    // Forget clients with a full budget again, once a minute
+    let (auth_prune, upload_prune) = (auth_rate_limit.clone(), upload_rate_limit.clone());
+    tokio::spawn(async move {
+        let mut every_minute = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            every_minute.tick().await;
+            auth_prune.prune();
+            upload_prune.prune();
+        }
+    });
 
     // Room for the multipart envelope around a file of the maximum size
     let upload_body_limit = config.max_file_size + 1024 * 1024;
@@ -159,7 +159,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/auth/register", post(register))
         .route("/api/auth/login", post(login))
         .route("/api/auth/refresh", post(refresh_token))
-        .layer(GovernorLayer::new(auth_rate_limit));
+        .layer(axum_middleware::from_fn_with_state(
+            auth_rate_limit,
+            rate_limit,
+        ));
 
     // Upload routes with rate limiting (API key based); body size follows MAX_FILE_SIZE
     let upload_routes = Router::new()
@@ -167,7 +170,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/folders/delete", post(delete_folder_files))
         .layer(DefaultBodyLimit::max(upload_body_limit))
         .layer(RequestBodyLimitLayer::new(upload_body_limit))
-        .layer(GovernorLayer::new(upload_rate_limit));
+        .layer(axum_middleware::from_fn_with_state(
+            upload_rate_limit,
+            rate_limit,
+        ));
 
     // Protected routes (require authentication)
     let protected_routes = Router::new()

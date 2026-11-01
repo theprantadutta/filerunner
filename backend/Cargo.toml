@@ -45,7 +45,7 @@ thiserror = "2.0"
 validator = { version = "0.21", features = ["derive"] }
 
 # Rate limiting
-tower_governor = "0.8"
+governor = "0.10"
 
 [profile.release]
 opt-level = 3

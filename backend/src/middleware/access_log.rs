@@ -9,25 +9,15 @@ use std::time::Instant;
 /// Health checks run every few seconds; logging them would bury everything else
 const QUIET_PATHS: &[&str] = &["/health"];
 
-/// The client's address as Traefik reports it, falling back to the direct peer
+/// The client's address, worked out the same way as for rate limits (see `client_ip`)
 fn client_ip(request: &Request) -> String {
-    let headers = request.headers();
-    headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .map(|v| v.trim().to_string())
-        .or_else(|| {
-            headers
-                .get("x-real-ip")
-                .and_then(|v| v.to_str().ok())
-                .map(|v| v.trim().to_string())
-        })
-        .or_else(|| {
-            request
-                .extensions()
-                .get::<ConnectInfo<SocketAddr>>()
-                .map(|ConnectInfo(addr)| addr.ip().to_string())
+    request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(addr)| {
+            super::client_ip::client(addr.ip(), request.headers())
+                .ip
+                .to_string()
         })
         .unwrap_or_else(|| "-".to_string())
 }
@@ -61,29 +51,32 @@ mod tests {
     use super::*;
     use axum::body::Body;
 
-    fn request_with(headers: &[(&str, &str)]) -> Request {
+    fn request_from(peer: &str, headers: &[(&str, &str)]) -> Request {
         let mut builder = Request::builder().uri("/x");
         for (name, value) in headers {
             builder = builder.header(*name, *value);
         }
-        builder.body(Body::empty()).unwrap()
+        let mut request = builder.body(Body::empty()).unwrap();
+        let addr: SocketAddr = format!("{peer}:5000").parse().unwrap();
+        request.extensions_mut().insert(ConnectInfo(addr));
+        request
     }
 
     #[test]
-    fn prefers_first_forwarded_address() {
-        let req = request_with(&[
-            ("x-forwarded-for", "203.0.113.5, 10.0.0.2"),
-            ("x-real-ip", "10.0.0.9"),
-        ]);
+    fn behind_traefik_logs_the_forwarded_client() {
+        let req = request_from("172.18.0.2", &[("x-forwarded-for", "203.0.113.5")]);
         assert_eq!(client_ip(&req), "203.0.113.5");
     }
 
     #[test]
-    fn falls_back_to_real_ip_then_dash() {
-        assert_eq!(
-            client_ip(&request_with(&[("x-real-ip", "198.51.100.7")])),
-            "198.51.100.7"
-        );
-        assert_eq!(client_ip(&request_with(&[])), "-");
+    fn a_public_peer_cannot_claim_another_address() {
+        let req = request_from("198.51.100.7", &[("x-forwarded-for", "203.0.113.5")]);
+        assert_eq!(client_ip(&req), "198.51.100.7");
+    }
+
+    #[test]
+    fn no_connection_info_logs_a_dash() {
+        let req = Request::builder().uri("/x").body(Body::empty()).unwrap();
+        assert_eq!(client_ip(&req), "-");
     }
 }

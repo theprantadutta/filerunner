@@ -839,7 +839,9 @@ All errors return JSON with an `error` field:
 | File upload and folder delete (`/api/upload`, `/api/folders/delete`) | 30 requests | 1 per second |
 | Everything else | No limit | |
 
-Limits are per client IP address, read from the `X-Forwarded-For` / `X-Real-IP` headers Traefik sets. The backend must only be reachable through the proxy (as in `compose.yml`, which publishes no ports); otherwise clients could set those headers themselves. Limited requests get `429` with a `Retry-After` header.
+Limits are per client IP address. `X-Forwarded-For` / `X-Real-IP` count only when the request comes from a private address (Traefik or another container); the right-most forwarded entry that is not a proxy is the client, so a client cannot pick its own address by sending the header. Limited requests get `429` with a `Retry-After` header.
+
+**Server-side integrations on the same Docker network are not upload-limited.** An app's backend that stores files for all of its users calls from one address, so a per-IP budget would be shared by every one of those users. Call FileRunner directly at `http://filerunner-backend:8000/api` from a container on the `proxy` network (no forwarded headers) and uploads and folder deletes skip the limit. Requests that come in through Traefik are always limited.
 
 ---
 
