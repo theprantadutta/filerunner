@@ -521,6 +521,61 @@ Only the upload key can upload; the read-only key gets `401`. The file is stream
 
 ---
 
+#### Chunked Upload (large files, or uploads through Cloudflare)
+
+Cloudflare rejects request bodies over 100 MB and drops requests that take longer than 100 seconds, and one dropped connection loses a one-request upload entirely. A chunked upload sends the file as 8 MiB pieces instead: in any order, several at once, each retried on its own. The dashboard uses it for files over 32 MB.
+
+Services calling FileRunner directly on the Docker network (`http://filerunner-backend:8000`) don't go through Cloudflare and can keep using `POST /api/upload` for any size.
+
+**1. Start**
+```http
+POST /api/uploads
+X-API-Key: <project_api_key>
+Content-Type: application/json
+
+{ "file_name": "video.mp4", "size": 734003200, "folder_path": "videos" }
+```
+`folder_path` is optional and follows the same rules as above. **Response (201 Created):**
+```json
+{
+  "upload_id": "8f14e45f-ceea-467f-a0e6-7a8a1f9d2c3b",
+  "chunk_size": 8388608,
+  "chunk_count": 88,
+  "received_chunks": []
+}
+```
+
+**2. Send each chunk** (`index` from 0 to `chunk_count - 1`; chunk *n* is bytes `n * chunk_size` up to the next chunk, so only the last one is shorter)
+```http
+PUT /api/uploads/:upload_id/chunks/:index
+X-API-Key: <project_api_key>
+Content-Type: application/octet-stream
+
+<raw bytes of the chunk>
+```
+`204 No Content` once the chunk is stored. Resending a chunk is safe; it replaces the earlier copy.
+
+**3. Complete**
+```http
+POST /api/uploads/:upload_id/complete
+X-API-Key: <project_api_key>
+```
+Returns the same response as `POST /api/upload`. If chunks are missing it returns `400` listing them.
+
+**Resume or abandon**
+- `GET /api/uploads/:upload_id` returns the session with `received_chunks`, so a client can send only what's missing.
+- `DELETE /api/uploads/:upload_id` abandons the upload and frees its space (`204`).
+- Sessions with no new chunk for 24 hours are deleted automatically.
+
+**Errors:**
+- `400` - Wrong chunk length, index out of range, invalid folder path, or chunks missing at complete
+- `401` - Missing or invalid upload key
+- `404` - Unknown, expired, aborted or already completed upload (also for another project's upload)
+- `413` - `size` larger than `MAX_FILE_SIZE`
+- `429` - Starting uploads too fast (chunks themselves are not rate limited)
+
+---
+
 #### Download File
 ```http
 GET /api/files/:file_id
@@ -836,7 +891,7 @@ All errors return JSON with an `error` field:
 | Endpoint | Burst | Then |
 |----------|-------|------|
 | Sign-in, sign-up, refresh (`/api/auth/login`, `/register`, `/refresh`) | 10 requests | 1 every 5 seconds |
-| File upload and folder delete (`/api/upload`, `/api/folders/delete`) | 30 requests | 1 per second |
+| File upload, starting a chunked upload, folder delete (`/api/upload`, `POST /api/uploads`, `/api/folders/delete`) | 30 requests | 1 per second |
 | Everything else | No limit | |
 
 Limits are per client IP address. `X-Forwarded-For` / `X-Real-IP` count only when the request comes from a private address (Traefik or another container); the right-most forwarded entry that is not a proxy is the client, so a client cannot pick its own address by sending the header. Limited requests get `429` with a `Retry-After` header.

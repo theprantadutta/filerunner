@@ -39,6 +39,10 @@ use handlers::{
         regenerate_api_key, regenerate_read_key, update_project,
     },
     stats::get_stats,
+    upload_session::{
+        CHUNK_BODY_LIMIT, abort_upload, complete_upload, prune_abandoned_uploads, start_upload,
+        upload_chunk, upload_status,
+    },
 };
 use middleware::rate_limit::{RateLimit, rate_limit};
 use middleware::{optional_auth, require_auth};
@@ -105,6 +109,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config: Arc::new(config.clone()),
     };
 
+    // Clear out chunked uploads nobody finished, now and every hour after
+    let prune_state = app_state.clone();
+    tokio::spawn(async move {
+        let mut every_hour = tokio::time::interval(Duration::from_secs(60 * 60));
+        loop {
+            every_hour.tick().await;
+            prune_abandoned_uploads(&prune_state).await;
+        }
+    });
+
     // Configure CORS with specific methods and headers for security
     let cors = CorsLayer::new()
         .allow_origin(
@@ -164,9 +178,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             rate_limit,
         ));
 
-    // Upload routes with rate limiting (API key based); body size follows MAX_FILE_SIZE
+    // Upload routes with rate limiting (API key based); body size follows MAX_FILE_SIZE.
+    // Starting a chunked upload counts as one upload here; its chunks are limited below.
     let upload_routes = Router::new()
         .route("/api/upload", post(upload_file))
+        .route("/api/uploads", post(start_upload))
         .route("/api/folders/delete", post(delete_folder_files))
         .layer(DefaultBodyLimit::max(upload_body_limit))
         .layer(RequestBodyLimitLayer::new(upload_body_limit))
@@ -174,6 +190,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             upload_rate_limit,
             rate_limit,
         ));
+
+    // Chunks of a started upload (API key based). Not rate limited: a 500 MB file is 63
+    // chunks, and each needs a session the key's own project started. One chunk per request.
+    let chunk_routes = Router::new()
+        .route("/api/uploads/{id}", get(upload_status).delete(abort_upload))
+        .route("/api/uploads/{id}/chunks/{index}", put(upload_chunk))
+        .route("/api/uploads/{id}/complete", post(complete_upload))
+        .layer(DefaultBodyLimit::max(CHUNK_BODY_LIMIT))
+        .layer(RequestBodyLimitLayer::new(CHUNK_BODY_LIMIT));
 
     // Protected routes (require authentication)
     let protected_routes = Router::new()
@@ -231,6 +256,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(auth_routes)
         // Merge rate-limited upload routes (API key based, no JWT auth)
         .merge(upload_routes)
+        .merge(chunk_routes)
         // Merge file delete routes (support both JWT and API key)
         .merge(file_delete_routes)
         // File download (API key based, no rate limit needed for downloads)

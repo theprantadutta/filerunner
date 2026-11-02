@@ -10,6 +10,7 @@ axum = { version = "0.8", features = ["multipart", "macros"] }
 tokio = { version = "1.53", features = ["full"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.7", features = ["fs", "cors", "set-header", "limit"] }
+http-body-util = "0.1"
 
 # Database
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "migrate", "macros"] }

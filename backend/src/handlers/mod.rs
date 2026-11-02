@@ -3,3 +3,4 @@ pub mod file;
 pub mod folder;
 pub mod project;
 pub mod stats;
+pub mod upload_session;

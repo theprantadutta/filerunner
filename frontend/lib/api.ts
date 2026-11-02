@@ -94,6 +94,15 @@ export interface UploadResponse {
   folder_path?: string;
 }
 
+/** A chunked upload in progress */
+export interface UploadSession {
+  upload_id: string;
+  chunk_size: number;
+  chunk_count: number;
+  /** Chunk indexes the server already has */
+  received_chunks: number[];
+}
+
 // ---------------------------------------------------------------- token refresh
 
 let isRefreshing = false;
@@ -289,6 +298,43 @@ export const filesApi = {
       signal: options.signal,
     });
   },
+
+  /** Chunked upload, step 1: open a session for a file of this size */
+  startChunked: (
+    apiKey: string,
+    file: File,
+    options: { folderPath?: string; signal?: AbortSignal } = {}
+  ) =>
+    api.post<UploadSession>(
+      "/uploads",
+      { file_name: file.name, size: file.size, folder_path: options.folderPath },
+      { headers: { "X-API-Key": apiKey }, signal: options.signal }
+    ),
+
+  /** Chunked upload, step 2: send one chunk as the raw body (any order, retry freely) */
+  uploadChunk: (
+    apiKey: string,
+    uploadId: string,
+    index: number,
+    chunk: Blob,
+    options: { onProgress?: (event: AxiosProgressEvent) => void; signal?: AbortSignal } = {}
+  ) =>
+    api.put(`/uploads/${uploadId}/chunks/${index}`, chunk, {
+      headers: { "X-API-Key": apiKey, "Content-Type": "application/octet-stream" },
+      onUploadProgress: options.onProgress,
+      signal: options.signal,
+    }),
+
+  /** Chunked upload, step 3: assemble the chunks into the stored file */
+  completeChunked: (apiKey: string, uploadId: string, signal?: AbortSignal) =>
+    api.post<UploadResponse>(`/uploads/${uploadId}/complete`, null, {
+      headers: { "X-API-Key": apiKey },
+      signal,
+    }),
+
+  /** Give up on a chunked upload and free its space on the server */
+  abortChunked: (apiKey: string, uploadId: string) =>
+    api.delete(`/uploads/${uploadId}`, { headers: { "X-API-Key": apiKey } }),
 
   recent: (limit = 12) => api.get<RecentFile[]>("/files/recent", { params: { limit } }),
 

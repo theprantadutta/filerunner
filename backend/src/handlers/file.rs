@@ -23,7 +23,7 @@ use crate::{
 };
 
 /// Folder paths are relative, slash-separated, and limited to safe characters
-fn validate_folder_path(path: &str) -> Result<()> {
+pub(crate) fn validate_folder_path(path: &str) -> Result<()> {
     if path.contains("..")
         || path.starts_with('/')
         || path.starts_with('\\')
@@ -60,9 +60,9 @@ fn multipart_error(e: MultipartError) -> AppError {
 }
 
 /// A file being received. Deleted on drop unless it was moved into place.
-struct TempUpload {
-    path: PathBuf,
-    size: u64,
+pub(crate) struct TempUpload {
+    pub(crate) path: PathBuf,
+    pub(crate) size: u64,
 }
 
 impl Drop for TempUpload {
@@ -220,32 +220,46 @@ pub async fn delete_project_folder(
     })))
 }
 
-pub async fn upload_file(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    mut multipart: Multipart,
-) -> Result<Json<UploadResponse>> {
-    // Only the full-access key can upload; the read key is download-only
+/// The project whose full-access key is in `X-API-Key`. The read key is download-only.
+pub(crate) async fn project_for_upload_key(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<Project> {
     let api_key = headers
         .get("X-API-Key")
         .and_then(|h| h.to_str().ok())
         .ok_or(AppError::Unauthorized)?;
     let api_key_uuid = Uuid::parse_str(api_key).map_err(|_| AppError::Unauthorized)?;
 
-    let project = sqlx::query_as::<_, Project>(
+    sqlx::query_as::<_, Project>(
         "SELECT id, user_id, name, api_key, read_key, is_public, created_at FROM projects WHERE api_key = $1",
     )
     .bind(api_key_uuid)
     .fetch_optional(&state.pool)
     .await?
-    .ok_or(AppError::Unauthorized)?;
+    .ok_or(AppError::Unauthorized)
+}
+
+/// Directory for files still being received. Inside the storage volume, so finished
+/// uploads move into place with a rename instead of a copy.
+pub(crate) async fn upload_temp_dir(state: &AppState) -> Result<PathBuf> {
+    let dir = PathBuf::from(&state.config.storage_path).join(".uploads");
+    fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| AppError::FileError(format!("Failed to prepare upload: {e}")))?;
+    Ok(dir)
+}
+
+pub async fn upload_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Json<UploadResponse>> {
+    let project = project_for_upload_key(&state, &headers).await?;
 
     // Stream the file to a temporary path inside the storage volume, then move it into place.
     // Nothing is held in memory beyond one chunk, whatever the file size.
-    let upload_dir = PathBuf::from(&state.config.storage_path).join(".uploads");
-    fs::create_dir_all(&upload_dir)
-        .await
-        .map_err(|e| AppError::FileError(format!("Failed to prepare upload: {e}")))?;
+    let upload_dir = upload_temp_dir(&state).await?;
 
     let max_size = state.config.max_file_size as u64;
     let mut upload: Option<TempUpload> = None;
@@ -302,6 +316,20 @@ pub async fn upload_file(
         validate_folder_path(path)?;
     }
 
+    store_upload(&state, project.id, upload, file_name, folder_path)
+        .await
+        .map(Json)
+}
+
+/// Move a fully received file into the project's storage and record it. Shared by the
+/// one-request upload and the chunked one, so both store files the same way.
+pub(crate) async fn store_upload(
+    state: &AppState,
+    project_id: Uuid,
+    upload: TempUpload,
+    file_name: String,
+    folder_path: Option<String>,
+) -> Result<UploadResponse> {
     // Get or create folder
     let folder_id = if let Some(ref path) = folder_path {
         let folder = sqlx::query_as::<_, Folder>(
@@ -312,7 +340,7 @@ pub async fn upload_file(
             RETURNING id, project_id, path, is_public, created_at
             "#,
         )
-        .bind(project.id)
+        .bind(project_id)
         .bind(path)
         // Folders are private unless made public explicitly; the project setting covers the rest
         .bind(false)
@@ -338,7 +366,7 @@ pub async fn upload_file(
     };
 
     let mut storage_path = PathBuf::from(&state.config.storage_path);
-    storage_path.push(project.id.to_string());
+    storage_path.push(project_id.to_string());
     if let Some(ref path) = folder_path {
         for segment in path.split('/') {
             storage_path.push(segment);
@@ -367,7 +395,7 @@ pub async fn upload_file(
         "#,
     )
     .bind(file_id)
-    .bind(project.id)
+    .bind(project_id)
     .bind(folder_id)
     .bind(&file_name)
     .bind(&stored_name)
@@ -390,17 +418,17 @@ pub async fn upload_file(
         "Uploaded {} ({} bytes) to project {}",
         file_record.original_name,
         file_record.size,
-        project.id
+        project_id
     );
 
-    Ok(Json(UploadResponse {
+    Ok(UploadResponse {
         file_id: file_record.id,
         original_name: file_record.original_name,
         size: file_record.size,
         mime_type: file_record.mime_type,
         download_url: format!("/api/files/{}", file_record.id),
         folder_path,
-    }))
+    })
 }
 
 #[derive(Deserialize)]

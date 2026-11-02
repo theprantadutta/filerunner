@@ -34,6 +34,15 @@ interface UploadState {
 const CONCURRENCY = 3;
 const MAX_ATTEMPTS = 4;
 
+// Files above this go up in chunks. Each request stays far below Cloudflare's 100 MB body
+// cap and 100 s timeout, and a dropped connection costs one chunk instead of the file.
+const CHUNKED_ABOVE = 32 * 1024 * 1024;
+// Chunks in flight per file; hides the round trip on a distant server
+const CHUNK_PARALLEL = 3;
+const CHUNK_ATTEMPTS = 6;
+
+type HttpError = { response?: { status?: number; headers?: Record<string, string> } };
+
 const controllers = new Map<string, AbortController>();
 let queryClient: QueryClient | null = null;
 
@@ -43,6 +52,129 @@ export function connectUploadsToQueryClient(client: QueryClient) {
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Worth another try: no response at all (network dropped), rate limited, or a server error */
+const isTransient = (error: unknown) => {
+  const status = (error as HttpError).response?.status;
+  return status === undefined || status === 429 || status >= 500;
+};
+
+/** Wait as long as a 429 asks, otherwise back off 1 s, 2 s, 4 s ... up to 15 s */
+const retryDelay = (error: unknown, attempt: number) => {
+  const e = error as HttpError;
+  if (e.response?.status === 429) {
+    return Math.max(1, Number(e.response.headers?.["retry-after"] ?? 2)) * 1000;
+  }
+  return Math.min(15_000, 1000 * 2 ** (attempt - 1));
+};
+
+async function withRetry<T>(
+  request: (attempt: number) => Promise<T>,
+  signal: AbortSignal,
+  attempts: number,
+  retryable: (error: unknown) => boolean
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await request(attempt);
+    } catch (error) {
+      if (signal.aborted || attempt >= attempts || !retryable(error)) throw error;
+      await sleep(retryDelay(error, attempt));
+      if (signal.aborted) throw error;
+    }
+  }
+}
+
+/** One request for the whole file. Retried only when rate limited: a resend after a lost
+ * response could store the file twice. */
+async function uploadWhole(item: UploadItem, signal: AbortSignal, onLoaded: (bytes: number) => void) {
+  await withRetry(
+    () =>
+      filesApi.upload(item.apiKey, item.file, {
+        folderPath: item.folderPath,
+        signal,
+        onProgress: (event) => onLoaded(event.loaded),
+      }),
+    signal,
+    MAX_ATTEMPTS,
+    (error) => (error as HttpError).response?.status === 429
+  );
+}
+
+/** Session, chunks in parallel (each retried on its own), then complete */
+async function uploadChunked(item: UploadItem, signal: AbortSignal, onLoaded: (bytes: number) => void) {
+  const { data: session } = await withRetry(
+    () => filesApi.startChunked(item.apiKey, item.file, { folderPath: item.folderPath, signal }),
+    signal,
+    MAX_ATTEMPTS,
+    (error) => (error as HttpError).response?.status === 429
+  );
+
+  // Stops the other chunks as soon as one fails for good, or the user cancels
+  const chunks = new AbortController();
+  const stop = () => chunks.abort();
+  signal.addEventListener("abort", stop);
+
+  try {
+    const sent = new Array<number>(session.chunk_count).fill(0);
+    const report = () => onLoaded(sent.reduce((sum, n) => sum + n, 0));
+    let next = 0;
+
+    const worker = async () => {
+      while (next < session.chunk_count && !chunks.signal.aborted) {
+        const index = next++;
+        const start = index * session.chunk_size;
+        const blob = item.file.slice(start, Math.min(start + session.chunk_size, item.file.size));
+        await withRetry(
+          () => {
+            sent[index] = 0;
+            report();
+            return filesApi.uploadChunk(item.apiKey, session.upload_id, index, blob, {
+              signal: chunks.signal,
+              onProgress: (event) => {
+                sent[index] = event.loaded;
+                report();
+              },
+            });
+          },
+          chunks.signal,
+          CHUNK_ATTEMPTS,
+          isTransient
+        );
+        sent[index] = blob.size;
+        report();
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(CHUNK_PARALLEL, session.chunk_count) }, () =>
+        worker().catch((error) => {
+          chunks.abort();
+          throw error;
+        })
+      )
+    );
+    if (signal.aborted) throw new Error("Upload cancelled");
+
+    await withRetry(
+      () => filesApi.completeChunked(item.apiKey, session.upload_id, signal),
+      signal,
+      CHUNK_ATTEMPTS,
+      isTransient
+    ).catch((error) => {
+      // Only a complete removes the session, so a 404 after our own earlier attempt means
+      // that attempt went through and only its response was lost.
+      if ((error as HttpError).response?.status === 404 && !signal.aborted) return;
+      throw error;
+    });
+  } catch (error) {
+    // Free the half-sent file on the server instead of leaving it for the nightly prune
+    filesApi.abortChunked(item.apiKey, session.upload_id).catch(() => {});
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", stop);
+  }
+}
 
 export const useUploads = create<UploadState>((set, get) => {
   const patch = (id: string, changes: Partial<UploadItem>) =>
@@ -62,40 +194,30 @@ export const useUploads = create<UploadState>((set, get) => {
     controllers.set(item.id, controller);
     patch(item.id, { status: "uploading", loaded: 0, error: undefined });
 
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      try {
-        await filesApi.upload(item.apiKey, item.file, {
-          folderPath: item.folderPath,
-          signal: controller.signal,
-          onProgress: (event) => patch(item.id, { loaded: event.loaded }),
-        });
-        patch(item.id, { status: "done", loaded: item.file.size });
-        queryClient?.invalidateQueries({ queryKey: ["files", item.projectId] });
-        queryClient?.invalidateQueries({ queryKey: ["project", item.projectId] });
-        queryClient?.invalidateQueries({ queryKey: ["projects"] });
-        queryClient?.invalidateQueries({ queryKey: ["stats"] });
-        queryClient?.invalidateQueries({ queryKey: ["recent"] });
-        break;
-      } catch (error) {
-        if (controller.signal.aborted) {
-          patch(item.id, { status: "cancelled" });
-          break;
-        }
-        const e = error as { response?: { status?: number; headers?: Record<string, string> } };
-        // Rate limited: wait as long as the server asks, then try again
-        if (e.response?.status === 429 && attempt < MAX_ATTEMPTS) {
-          const wait = Number(e.response.headers?.["retry-after"] ?? 2);
-          await sleep(Math.max(1, wait) * 1000);
-          continue;
-        }
+    const onLoaded = (loaded: number) => patch(item.id, { loaded });
+    try {
+      if (item.file.size > CHUNKED_ABOVE) {
+        await uploadChunked(item, controller.signal, onLoaded);
+      } else {
+        await uploadWhole(item, controller.signal, onLoaded);
+      }
+      patch(item.id, { status: "done", loaded: item.file.size });
+      queryClient?.invalidateQueries({ queryKey: ["files", item.projectId] });
+      queryClient?.invalidateQueries({ queryKey: ["project", item.projectId] });
+      queryClient?.invalidateQueries({ queryKey: ["projects"] });
+      queryClient?.invalidateQueries({ queryKey: ["stats"] });
+      queryClient?.invalidateQueries({ queryKey: ["recent"] });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        patch(item.id, { status: "cancelled" });
+      } else {
         patch(item.id, {
           status: "failed",
           error:
-            e.response?.status === 413
+            (error as HttpError).response?.status === 413
               ? "Larger than the upload limit"
               : apiError(error, "Upload failed"),
         });
-        break;
       }
     }
 
